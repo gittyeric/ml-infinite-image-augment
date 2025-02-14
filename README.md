@@ -26,8 +26,8 @@ The only Python you need to provide at minimum is a `predict(image) -> labels` f
 ## Step 0: Installation
 
 - Clone this Git repo to your machine
-- `pip install -r requirements.txt` to install dependecies with Python >= 3.6 (?) installed.
-- Open example.py as a starting template and modify as you run through...
+- `pip install -r requirements.txt` to install dependecies with Python >= 3.6 installed.
+- Open examples/basic/example.py as a starting template and modify as you run through...
 
 ## Step 1: Plumbing up your model
 
@@ -106,7 +106,8 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 `Darken`: Decrease brightness
 `Decontrast`: Decrease global contrast
 `Desaturate`: Decrease global image saturation
-`Hue`: Shift global image hue
+`Dehue`: Shift global image hue negative
+`Hue`: Shift global image hue positive
 `LessBlue`: Reduce contribution of Blue channel
 `LessGreen`: Reduce contribution of Green channel
 `LessRed`: Reduce contribution of Red channel
@@ -126,7 +127,7 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 `Downscale`: Lossily reduce image resolution
 `GaussNoise`: Add random noise to image
 `PixelDropout`: Percentage of random pixels to blacken
-`RandomResizedCrop`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
+`RandomCropFromBorders`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
 `Superpixels`: Randomly transplant patches of image elsewhere
 
 ### ImageAugmenter.searchRandomizationBoundries(training_img_filenames, training_labels, step_size_percent=5)
