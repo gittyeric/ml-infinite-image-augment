@@ -33,7 +33,7 @@ DISTORTION_AUGMENTATIONS = [
 
 PIXEL_DROPOUT_AUGMENTATIONS = [
     "Downscale",
-    "GaussNoise",
+    "MultiplicitiveNoise",
     "PixelDropout",
     "RandomCropFromBorders",
     "Superpixels"
@@ -117,8 +117,8 @@ class ImageAugmenter:
             step = A.HueSaturationValue(p=1, sat_shift_limit=(intensity * -100, intensity * -100))
         elif aug_name == "ElasticTransform":
             step = A.ElasticTransform(p=1.0, alpha=intensity, sigma=intensity*9, alpha_affine=intensity*50, border_mode=1, approximate=False) 
-        elif aug_name == "GaussNoise":
-            step = A.GaussNoise(p=1, var_limit=(max(intensity * 10, 1), max(intensity * 10, 1)))
+        elif aug_name == "MultiplicitiveNoise":
+            step = A.MultiplicativeNoise(p=1, multiplier=(1 + intensity * 4, 1 + intensity * 4), per_channel=True, elementwise=True)
         elif aug_name == "GaussianBlur":
             step = A.GaussianBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), sigma_limit=(intensity * 10, intensity * 10))
         elif aug_name == "Sharpen":
@@ -228,8 +228,8 @@ class ImageAugmenter:
                 steps.append(A.HueSaturationValue(p=1, sat_shift_limit=(max_bound * -100, min_bound * -100)))
             elif aug_name == "ElasticTransform":
                 steps.append(A.ElasticTransform(always_apply=False, p=1.0, alpha=(0, max_bound), sigma=(min_bound*9, max_bound*9), alpha_affine=(min_bound*50, max_bound*50), interpolation=0, border_mode=1, approximate=False, same_dxdy=False))
-            elif aug_name == "GaussNoise":
-                steps.append(A.GaussNoise(p=1, var_limit=(max(min_bound * 10, 1), max(max_bound * 10, 1))))
+            elif aug_name == "MultiplicitiveNoise":
+                steps.append(A.MultiplicativeNoise(p=1, multiplier=(1 + min_bound * 4, 1 + max_bound * 4), per_channel=True, elementwise=True))
             elif aug_name == "GaussianBlur":
                 steps.append(A.GaussianBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), sigma_limit=(min_bound * 10, max_bound * 10)))
             elif aug_name == "Sharpen":

@@ -125,7 +125,7 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 
 ##### Pixel Dropouts
 `Downscale`: Lossily reduce image resolution
-`GaussNoise`: Add random noise to image
+`MultiplicitiveNoise`: Add random noise to image
 `PixelDropout`: Percentage of random pixels to blacken
 `RandomCropFromBorders`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
 `Superpixels`: Randomly transplant patches of image elsewhere
