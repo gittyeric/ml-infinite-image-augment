@@ -19,7 +19,7 @@ class SiftSimilarity():
     def sift_matches(self, baseline_features, img_features):
         kps1,desc1 = baseline_features
         kps2,desc2 = img_features
-        if len(kps2) == 0 or len(desc2) == 0:
+        if len(kps2) < 2 or len(desc2) < 2:
             return [], kps1, desc1, kps2, desc2
         matches = self.matcher.match(desc1,desc2)
         matches = sorted(matches,key= lambda x:x.distance)
