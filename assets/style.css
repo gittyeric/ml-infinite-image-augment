@@ -1,0 +1,36 @@
+body {
+    text-align: center;
+    font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+}
+
+p {
+    max-width: 1000px;
+    margin: 5vh auto;
+}
+
+table {
+    width: 100%;
+    font-size: 1.4vw;
+}
+
+table th {
+    font-weight: bold;
+    font-size: 1.2vw;
+}
+
+table td {
+    text-align: center;
+    border: 1px solid #aaa;
+}
+
+p.title {
+    font-weight: bold;
+}
+
+table img {
+    max-width: 20vw;
+}
+
+.canvas {
+    width: 30vw;
+}

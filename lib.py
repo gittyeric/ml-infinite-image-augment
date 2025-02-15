@@ -4,6 +4,7 @@ import json
 import random
 import albumentations as A
 import cv2
+import shutil
 
 COLOR_AUGMENTATIONS = [
     "Brighten",
@@ -117,7 +118,7 @@ class ImageAugmenter:
         elif aug_name == "ElasticTransform":
             step = A.ElasticTransform(p=1.0, alpha=intensity, sigma=intensity*9, alpha_affine=intensity*50, border_mode=1, approximate=False) 
         elif aug_name == "GaussNoise":
-            step = A.GaussNoise(p=1, var_limit=(intensity * 500, intensity * 500))
+            step = A.GaussNoise(p=1, var_limit=(intensity * 50, intensity * 50))
         elif aug_name == "GaussianBlur":
             step = A.GaussianBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), sigma_limit=(intensity * 10, intensity * 10))
         elif aug_name == "Sharpen":
@@ -125,7 +126,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_min=1 - intensity * 0.75, scale_max=1 - intensity * 0.75)
+            step = A.Downscale(p=1, scale_min=1 - intensity * 0.5, scale_max=1 - intensity * 0.5)
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomCropFromBorders":
@@ -133,7 +134,7 @@ class ImageAugmenter:
         elif aug_name == "PixelDropout":
             step = A.PixelDropout(p=1, dropout_prob=intensity * 0.5, per_channel=1)
         elif aug_name == "Superpixels":
-            step = A.Superpixels(p=1, p_replace=(intensity, intensity), n_segments=(500, 1000))
+            step = A.Superpixels(p=1, p_replace=(intensity * 0.5, intensity * 0.5), n_segments=(500, 1000))
         else:
             raise Exception("Unknown augmentation type " + aug_name)
         return A.Compose([step], **label_opts)
@@ -142,13 +143,14 @@ class ImageAugmenter:
         label_opts = {} if self.label_format is None else self.label_format
         steps = []
 
-        shuffled_augs = random.shuffle(self.analytics["augs"].keys())
+        shuffled_augs = [x for x in self.analytics["augs"].keys()]
+        random.shuffle(shuffled_augs)
         aug_count = random.randint(min_random_augmentations, max_random_augmentations)
 
         # Remove duplicate or contradictory aug types, preferring the first
         aug_set = {}
         for aug in shuffled_augs:
-            bans = BANNED_PAIRS[aug]
+            bans = BANNED_PAIRS[aug] if aug in BANNED_PAIRS else []
             banned = False
             for ban in bans:
                 if ban in aug_set:
@@ -162,24 +164,25 @@ class ImageAugmenter:
         for aug_name in augs:
             # Compute max bound based on past err and generalization as [0, 1] min/max_bound scalars
             histo = self.analytics["augs"][aug_name]
-            first_major_err = 100
-            max_acceptable_err = 0
+            first_major_err = 1.0
+            max_acceptable_err = 0.0
             # Swim thru the histogram to determine safe intensities
             for point in histo:
+                intensity, err = point
                 # Consider > 2% error to be when model first starts showing
                 # non-negligible differences in output, this way minor issues
                 # like slight IoU box area differences don't trigger this too soon
-                if point[1] > MIN_NONNEGLIGABLE_ERR and first_major_err == 100:
-                    first_major_err = point[0]
+                if err > MIN_NONNEGLIGABLE_ERR and first_major_err >= 1.0:
+                    first_major_err = intensity
                 # Consider > 49% error the breaking point for the model, the main
                 # reason being that this is the lowest threshold that
                 # still supports even the simplest boolean classifier, maybe
                 # this should be parameterized for more complex models
-                if point[1] >= MIN_CRITICAL_ERR and max_acceptable_err == 0:
-                    max_acceptable_err = point[0]
-            if first_major_err == 100:
-                first_major_err = 0
-                max_acceptable_err = 100
+                if err >= MIN_CRITICAL_ERR and max_acceptable_err == 0:
+                    max_acceptable_err = intensity
+            if first_major_err >= 1.0:
+                first_major_err = 0.0
+                max_acceptable_err = 1.0
             boundry_dist = (first_major_err + max_acceptable_err)/2
             min_bound = generalization * first_major_err
             max_bound = generalization * boundry_dist + first_major_err
@@ -215,7 +218,7 @@ class ImageAugmenter:
             elif aug_name == "ElasticTransform":
                 steps.append(A.ElasticTransform(always_apply=False, p=1.0, alpha=(0, max_bound), sigma=(min_bound*9, max_bound*9), alpha_affine=(min_bound*50, max_bound*50), interpolation=0, border_mode=1, approximate=False, same_dxdy=False))
             elif aug_name == "GaussNoise":
-                steps.append(A.GaussNoise(p=1, var_limit=(min_bound * 500, max_bound * 500)))
+                steps.append(A.GaussNoise(p=1, var_limit=(min_bound * 50, max_bound * 50)))
             elif aug_name == "GaussianBlur":
                 steps.append(A.GaussianBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), sigma_limit=(min_bound * 10, max_bound * 10)))
             elif aug_name == "Sharpen":
@@ -223,7 +226,7 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_min=1 - max_bound * 0.75, scale_max=1 - min_bound * 0.75))
+                steps.append(A.Downscale(p=1, scale_min=1 - max_bound * 0.5, scale_max=1 - min_bound * 0.5))
             elif aug_name == "SafeRotate":
                 steps.append(A.SafeRotate(p=1, limit=(min_bound * 359.99, max_bound * 359.99), border_mode=1))
             elif aug_name == "RandomCropFromBorders":
@@ -231,7 +234,7 @@ class ImageAugmenter:
             elif aug_name == "PixelDropout":
                 steps.append(A.PixelDropout(p=1, dropout_prob=max_bound * 0.5, per_channel=1))
             elif aug_name == "Superpixels":
-                steps.append(A.Superpixels(p=1, p_replace=(min_bound, max_bound), n_segments=(500, 1000)))
+                steps.append(A.Superpixels(p=1, p_replace=(min_bound * 0.5, max_bound * 0.5), n_segments=(500, 1000)))
             else:
                 raise Exception("Unknown augmentation type " + aug_name)
         return A.Compose(steps, **label_opts)
@@ -260,12 +263,11 @@ class ImageAugmenter:
     # breaks my_predict
     def _measureErrorAtTickForAug(self, intensity: float, aug: str, img_filenames: list[str], labels):
         pipeline = self._buildBoundryTestPipeline(intensity, aug)
-        first_err_sample = None
+        first_err_img = None
+        first_err_err = None
         first_err_label = None
-        first_err_intensity = None
-        last_success_sample = None
+        last_success_img = None
         last_success_label = None
-        last_success_intensity = None
         err_sum = 0.0
         for i in range(len(img_filenames)):
             file = img_filenames[i]
@@ -280,34 +282,42 @@ class ImageAugmenter:
             
             err = self.diff_error(test_labels, prediction)
             err_sum += err
-            if err >= MIN_NONNEGLIGABLE_ERR and first_err_sample is None:
-                first_err_sample = file
-                first_err_intensity = intensity
+            if err >= MIN_NONNEGLIGABLE_ERR and first_err_img is None:
+                first_err_img = file
+                first_err_err = err
                 first_err_label = labels[i]
             if err < MIN_NONNEGLIGABLE_ERR:
-                last_success_sample = file
-                last_success_intensity = intensity
+                last_success_img = file
                 last_success_label = labels[i]
         return {
             "first_err": {
-                "img": first_err_sample,
+                "img": first_err_img,
+                "err": first_err_err,
                 "label": first_err_label,
-                "intensity": first_err_intensity
+                "intensity": intensity
             },
             "last_success": {
-                "img": last_success_sample,
+                "img": last_success_img,
                 "label": last_success_label,
-                "intensity": last_success_intensity
+                "intensity": intensity
             },
             "err": err_sum / len(img_filenames)
         }
 
     def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels, step_size_percent: float=0.05):
-        temp_analytics = {"augs": {}, "summaries": {}}
+        set_size = len(training_img_filenames)
+        temp_analytics = {"steps": step_size_percent, "set_size": set_size, "augs": {}, "summaries": {}}
         if path.exists("analytics.json"):
             with open('analytics.json', 'r') as inputf:
-                temp_analytics = json.load(inputf)
-                print("Resuming progress from analytics.json")
+                loaded = json.load(inputf)
+                if loaded["steps"] == step_size_percent:
+                    if loaded["set_size"] == set_size:
+                        temp_analytics = loaded
+                        print("Resuming progress from analytics.json")
+                    else:
+                        print("Training set size changed, searching boundries from scratch")
+                else:
+                    print("Step size changed, searching boundries from scratch")
 
         augs = temp_analytics["augs"]
         summaries = temp_analytics["summaries"]
@@ -317,14 +327,13 @@ class ImageAugmenter:
             last_success = None
             if aug_name not in augs:
                 augs[aug_name] = []
-            aug_histogram = augs[aug_name]
-            cur_intensity = 0 if len(aug_histogram) == 0 else aug_histogram[-1][0]
-            if cur_intensity >= 1:
-                print("Skipping " + aug_name + ", already processed")
             else:
-                print("Analyzing " + aug_name + "'s acceptable intensity ranges")
-            while (cur_intensity < 1):
-                cur_intensity = min(round(cur_intensity + step_size_percent, 6), 1)
+                print("Skipping " + aug_name + ", already processed")
+                continue
+            aug_histogram = augs[aug_name]
+            cur_intensity = step_size_percent
+            print("Analyzing " + aug_name + "'s acceptable intensity ranges")
+            while (cur_intensity <= 1):
                 print("Intensity: " + str(cur_intensity))
                 err_info = self._measureErrorAtTickForAug(cur_intensity, aug_name, training_img_filenames, training_labels)
                 err_ratio = err_info["err"]
@@ -333,6 +342,7 @@ class ImageAugmenter:
                 if err_info["last_success"]["img"] is not None:
                     last_success = err_info["last_success"]
                 aug_histogram.append([cur_intensity, err_ratio])
+                cur_intensity = round(cur_intensity + step_size_percent, 6)
             # Store summaries for fast rendering
             summaries[aug_name] = {
                 "first_err": first_err,
@@ -344,60 +354,115 @@ class ImageAugmenter:
         self.analytics = temp_analytics
         return self.analytics
 
-    def _renderAugRow(self, aug_name: str, body: list[str], html_dir: str):
+    def _renderAugRow(self, aug_name: str, body: list[str], script: list[str], html_dir: str):
         aug_histogram = self.analytics["augs"][aug_name]
         summary = self.analytics["summaries"][aug_name]
 
         body.append("<tr>")
         body.append("<td>" + aug_name + "</td>")
-        if summary["first_err"]["img"] is not None:
-            # Draw the image to file
-            pipeline = self._buildBoundryTestPipeline(summary["first_err"]["intensity"], aug_name)
-            test = self._synthesize_one(summary["first_err"]["img"], summary["first_err"]["label"], pipeline)
-            rendered_img_path = path.join(html_dir, "imgs", path.basename(summary["first_err"]["img"]))
-            cv2.imwrite(rendered_img_path, test.image)
-            relative_img_path = "imgs/" + path.basename(summary["first_err"]["img"])
-            body.append("<td>" + summary["first_err"]["err"] + "</td>")
-            body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
-        else:
-            body.append("<td>N/A</td>")
-            body.append("<td>N/A</td>")
-        if summary["last_success"] is not None:
-            # Draw the image to file
-            pipeline = self._buildBoundryTestPipeline(summary["last_success"]["intensity"], aug_name)
-            test = self._synthesize_one(summary["last_success"]["img"], summary["last_success"]["label"], pipeline)
-            rendered_img_path = path.join(html_dir, "imgs", path.basename(summary["last_success"]["img"]))
-            cv2.imwrite(rendered_img_path, test.image)
-            relative_img_path = "imgs/" + path.basename(summary["last_success"]["img"])
-            body.append("<td>" + summary["last_success"]["err"] + "</td>")
-            body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
-        else:
-            body.append("<td>N/A</td>")
-            body.append("<td>N/A</td>")
-        body.append("<td>")
-        # TODO: Draw graph
-        for aug in aug_histogram.keys():
-            val = aug_histogram[aug]
+        body.append("<td><div class='canvas'><canvas id=\"" + aug_name.lower() + "\"></canvas></div>")
         body.append("</td>")
+        if summary["first_err"] is not None:
+            first_err = summary["first_err"]
+            # Draw the image to file
+            pipeline = self._buildBoundryTestPipeline(first_err["intensity"], aug_name)
+            test = self._synthesize_one(first_err["img"], first_err["label"], pipeline)
+            synth_img_name = aug_name + "_" + str(round(first_err["intensity"] * 100)) + "_errors_start_" + path.basename(first_err["img"])
+            rendered_img_path = path.join(html_dir, "imgs", synth_img_name)
+            cv2.imwrite(rendered_img_path, test["image"])
+            print("wrote " + rendered_img_path)
+            relative_img_path = "imgs/" + synth_img_name
+            body.append("<td>" + str(round(first_err["intensity"] * 100)) + "%</td>")
+            body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
+        else:
+            body.append("<td>No Errors!</td>")
+            body.append("<td>No Errors!</td>")
+        if summary["last_success"] is not None:
+            last_success = summary["last_success"]
+            # Draw the image to file
+            pipeline = self._buildBoundryTestPipeline(last_success["intensity"], aug_name)
+            test = self._synthesize_one(last_success["img"], last_success["label"], pipeline)
+            synth_img_name = aug_name + "_at_" + str(round(last_success["intensity"] * 100)) + "_still_good_" + path.basename(last_success["img"])
+            rendered_img_path = path.join(html_dir, "imgs", synth_img_name)
+            cv2.imwrite(rendered_img_path, test["image"])
+            print("wrote " + rendered_img_path)
+            relative_img_path = "imgs/" + synth_img_name
+            body.append("<td>" + (str(round(last_success["intensity"] * 100))) + "%</td>")
+            body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
+        else:
+            body.append("<td>No Successes</td>")
+            body.append("<td>No Successes</td>") 
         body.append("</tr>")
-        return "\n".join(body)
+        # TODO: Draw graph
+        graph_data = {
+            "labels": [point[0] for point in aug_histogram], 
+            "datasets": [{"label": "Diff Error", "data": [point[1]*100 for point in aug_histogram], "borderColor": "#cc3333", "fill": False, "tension": 0.4}]}
+        graph_config = {
+            "type": 'line',
+            "data": graph_data,
+            "options": {
+                "responsive": True,
+                "plugins": {
+                "title": {
+                    "display": False,
+                    "text": ''
+                },
+                },
+                "interaction": {
+                "intersect": False,
+                },
+                "scales": {
+                "x": {
+                    "display": True,
+                    "title": {
+                    "display": True,
+                    "text": 'Intensity'
+                    }
+                },
+                "y": {
+                    "display": True,
+                    "title": {
+                    "display": True,
+                    "text": "Output Diff Error"
+                    },
+                    "suggestedMin": 0,
+                    "suggestedMax": 100
+                }
+                }
+            }
+        } 
+        script.append("const " + aug_name.lower() + " = document.getElementById('" + aug_name.lower() + "');")
+        script.append(f'''new Chart({aug_name.lower()}, {json.dumps(graph_config)});''')
 
     def renderBoundries(self, html_dir="analytics"):
         if self.analytics is None:
             raise Exception("Cannot call before searchRandomizationBoundries")
 
+        script = []
         body = ["<h1>Model Resiliency Report</h1>"]
-        body.append("<p>The table below summarizes how your model performs at different intensities of image augmentation.  You can view generated samples that began giving your model problems up to the last sample your model was still able to successfully predict.</p>")
-        body.append("<table><tr><th>Augmentation</th><th>First Errors At</th><th>First Error Img</th><th>Last Successes At</th><th>Last Success Img</th><th>Intensity vs model output diff error rate</th></tr>")
+        body.append("<p>The table below summarizes how your model performs at different intensities of image augmentation.  You can view generated samples that began giving your model problems up to the last intensity where a majority of model outputs were the same.</p>")
+        body.append("<table><tr><th>Augmentation</th><th>Intensity vs Diff Error</th><th>First Error Intensity</th><th>First Error</th><th>Last Success Intensity</th><th>Last Success</th></tr>")
         for aug_name in self.analytics["augs"].keys():
-            body.append(self._renderAugRow(aug_name, body, html_dir))
+            print("Render " + aug_name)
+            self._renderAugRow(aug_name, body, script, html_dir)
         body.append("</table>")
 
-        html = "<html><title>Model Resiliency report</title><body>\n" + "\n".join(body) + "\n</body></html>"
+        html = "<html><head><script src=\"chart.js\"></script><link rel=\"stylesheet\" href=\"style.css\"><title>Model Resiliency report</title></head><body>\n" + \
+        "\n".join(body) + \
+        "<script>" + \
+        "\n".join(script) + \
+        "</script>" + \
+        "\n</body></html>"
+        if not os.path.exists(html_dir):
+            os.makedirs(html_dir)
+        if not os.path.exists(path.join(html_dir, "imgs")):
+            os.makedirs(path.join(html_dir, "imgs"))
         full_path = path.join(html_dir, "index.html")
         with open(full_path, "w") as f:
             f.write(html)
             print("Wrote " + full_path + ", open to view results")
+        shutil.copy(path.join("assets", "style.css"), path.join(html_dir, "style.css"))
+        shutil.copy(path.join("assets", "chart.js"), path.join(html_dir, "chart.js"))
 
     def synthesizeMore(self, organic_img_filenames, organic_labels, generalization=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1):
         if self.analytics is None:

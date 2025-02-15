@@ -39,7 +39,7 @@ def main():
     # Analyze training set for model weaknesses under different randomizations
     augmenter.searchRandomizationBoundries(training_set, model.training_labels)
     # Render a summary of how well the model behaved
-    augmenter.renderBoundries(html_dir="examples/basic/analysis")
+    augmenter.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
     # Generate some images based on discovered randomiaation boundries and training data
     synth = augmenter.synthesizeMore(training_set, model.training_labels)
     # Use synthesized data as an improvised infinite validation set to test generality
