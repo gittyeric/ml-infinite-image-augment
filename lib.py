@@ -100,17 +100,17 @@ class ImageAugmenter:
         elif aug_name == "Hue":
             step = A.HueSaturationValue(p=1, hue_shift_limit=(intensity * 100, intensity * 100))
         elif aug_name == "LessBlue":
-            step = A.RGBShift(p=1, b_shift_limit=(-intensity, -intensity))
+            step = A.RGBShift(p=1, r_shift_limit=(-intensity, -intensity))
         elif aug_name == "LessGreen":
             step = A.RGBShift(p=1, g_shift_limit=(-intensity, -intensity))
         elif aug_name == "LessRed":
-            step = A.RGBShift(p=1, r_shift_limit=(-intensity, -intensity))
+            step = A.RGBShift(p=1, b_shift_limit=(-intensity, -intensity))
         elif aug_name == "MoreBlue":
-            step = A.RGBShift(p=1, b_shift_limit=(intensity, intensity))
+            step = A.RGBShift(p=1, r_shift_limit=(intensity, intensity))
         elif aug_name == "MoreGreen":
             step = A.RGBShift(p=1, g_shift_limit=(intensity, intensity))
         elif aug_name == "MoreRed":
-            step = A.RGBShift(p=1, r_shift_limit=(intensity, intensity))
+            step = A.RGBShift(p=1, b_shift_limit=(intensity, intensity))
         elif aug_name == "Saturate":
             step = A.HueSaturationValue(p=1, sat_shift_limit=(intensity * 100, intensity * 100))
         elif aug_name == "Desaturate":
@@ -118,7 +118,7 @@ class ImageAugmenter:
         elif aug_name == "ElasticTransform":
             step = A.ElasticTransform(p=1.0, alpha=intensity, sigma=intensity*9, alpha_affine=intensity*50, border_mode=1, approximate=False) 
         elif aug_name == "GaussNoise":
-            step = A.GaussNoise(p=1, var_limit=(intensity * 50, intensity * 50))
+            step = A.GaussNoise(p=1, var_limit=(max(intensity * 50, 1), max(intensity * 50, 1)))
         elif aug_name == "GaussianBlur":
             step = A.GaussianBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), sigma_limit=(intensity * 10, intensity * 10))
         elif aug_name == "Sharpen":
@@ -126,7 +126,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_min=1 - intensity * 0.5, scale_max=1 - intensity * 0.5)
+            step = A.Downscale(p=1, scale_min=(1 - intensity * 0.5), scale_max=(1 - intensity * 0.5))
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomCropFromBorders":
@@ -139,7 +139,7 @@ class ImageAugmenter:
             raise Exception("Unknown augmentation type " + aug_name)
         return A.Compose([step], **label_opts)
 
-    def _buildPipeline(self, generalization: int, min_random_augmentations: int, max_random_augmentations: int):
+    def _buildPipeline(self, realism: int, min_random_augmentations: int, max_random_augmentations: int):
         label_opts = {} if self.label_format is None else self.label_format
         steps = []
 
@@ -162,30 +162,36 @@ class ImageAugmenter:
         augs = aug_set.keys()
 
         for aug_name in augs:
-            # Compute max bound based on past err and generalization as [0, 1] min/max_bound scalars
+            # Compute max bound based on past err and realism as [0, 1] min/max_bound scalars
             histo = self.analytics["augs"][aug_name]
-            first_major_err = 1.0
-            max_acceptable_err = 0.0
+            first_nonnegligale_intensity = 1.0
+            last_noncritical_intensity = 0.0
             # Swim thru the histogram to determine safe intensities
             for point in histo:
                 intensity, err = point
                 # Consider > 2% error to be when model first starts showing
                 # non-negligible differences in output, this way minor issues
                 # like slight IoU box area differences don't trigger this too soon
-                if err > MIN_NONNEGLIGABLE_ERR and first_major_err >= 1.0:
-                    first_major_err = intensity
+                if err > MIN_NONNEGLIGABLE_ERR and first_nonnegligale_intensity == 1.0:
+                    first_nonnegligale_intensity = intensity
                 # Consider > 49% error the breaking point for the model, the main
                 # reason being that this is the lowest threshold that
                 # still supports even the simplest boolean classifier, maybe
                 # this should be parameterized for more complex models
-                if err >= MIN_CRITICAL_ERR and max_acceptable_err == 0:
-                    max_acceptable_err = intensity
-            if first_major_err >= 1.0:
-                first_major_err = 0.0
-                max_acceptable_err = 1.0
-            boundry_dist = (first_major_err + max_acceptable_err)/2
-            min_bound = generalization * first_major_err
-            max_bound = generalization * boundry_dist + first_major_err
+                if err < MIN_CRITICAL_ERR:
+                    last_noncritical_intensity = intensity
+            if first_nonnegligale_intensity >= 1.0:
+                first_nonnegligale_intensity = 0.0
+                last_noncritical_intensity = 1.0
+            half_step = self.analytics["steps"] * 0.5
+            # Min bound is set by the first intensity that caused a non-trivial average error,
+            # also shift left by half a step to conservatively assume the non-trivial error
+            # started somewhere between intensity test X-axis ticks, scale by realism factor
+            min_bound = (1 - realism) * max(first_nonnegligale_intensity - half_step, 0)
+            # Max bound is set by the last intensity that didn't cause a non-critical average error,
+            # also shift left by half a step to conservatively assume the critical error
+            # started somewhere between intensity test X-axis ticks, scale by realism factor
+            max_bound = (1 - realism) * max(last_noncritical_intensity - half_step, 0)
 
             if aug_name == "Darken":
                 steps.append(A.RandomBrightnessContrast(p=1, brightness_limit=(-max_bound, -min_bound)))
@@ -200,17 +206,17 @@ class ImageAugmenter:
             elif aug_name == "Hue":
                 steps.append(A.HueSaturationValue(p=1, hue_shift_limit=(min_bound * 100, max_bound * 100)))
             elif aug_name == "LessBlue":
-                steps.append(A.RGBShift(p=1, b_shift_limit=(max_bound * -255, min_bound * -255)))
+                steps.append(A.RGBShift(p=1, r_shift_limit=(max_bound * -255, min_bound * -255)))
             elif aug_name == "LessGreen":
                 steps.append(A.RGBShift(p=1, g_shift_limit=(max_bound * -255, min_bound * -255)))
             elif aug_name == "LessRed":
-                steps.append(A.RGBShift(p=1, r_shift_limit=(max_bound * -255, min_bound * -255)))
+                steps.append(A.RGBShift(p=1, b_shift_limit=(max_bound * -255, min_bound * -255)))
             elif aug_name == "MoreBlue":
-                steps.append(A.RGBShift(p=1, b_shift_limit=(min_bound * 255, max_bound * 255)))
+                steps.append(A.RGBShift(p=1, r_shift_limit=(min_bound * 255, max_bound * 255)))
             elif aug_name == "MoreGreen":
                 steps.append(A.RGBShift(p=1, g_shift_limit=(min_bound * 255, max_bound * 255)))
             elif aug_name == "MoreRed":
-                steps.append(A.RGBShift(p=1, r_shift_limit=(min_bound * 255, max_bound * 255)))
+                steps.append(A.RGBShift(p=1, b_shift_limit=(min_bound * 255, max_bound * 255)))
             elif aug_name == "Saturate":
                 steps.append(A.HueSaturationValue(p=1, sat_shift_limit=(min_bound * 100, max_bound * 100)))
             elif aug_name == "Desaturate":
@@ -218,7 +224,7 @@ class ImageAugmenter:
             elif aug_name == "ElasticTransform":
                 steps.append(A.ElasticTransform(always_apply=False, p=1.0, alpha=(0, max_bound), sigma=(min_bound*9, max_bound*9), alpha_affine=(min_bound*50, max_bound*50), interpolation=0, border_mode=1, approximate=False, same_dxdy=False))
             elif aug_name == "GaussNoise":
-                steps.append(A.GaussNoise(p=1, var_limit=(min_bound * 50, max_bound * 50)))
+                steps.append(A.GaussNoise(p=1, var_limit=(max(min_bound * 50, 1), max(max_bound * 50, 1))))
             elif aug_name == "GaussianBlur":
                 steps.append(A.GaussianBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), sigma_limit=(min_bound * 10, max_bound * 10)))
             elif aug_name == "Sharpen":
@@ -226,7 +232,7 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_min=1 - max_bound * 0.5, scale_max=1 - min_bound * 0.5))
+                steps.append(A.Downscale(p=1, scale_min=(1 - max_bound * 0.5), scale_max=(1 - min_bound * 0.5)))
             elif aug_name == "SafeRotate":
                 steps.append(A.SafeRotate(p=1, limit=(min_bound * 359.99, max_bound * 359.99), border_mode=1))
             elif aug_name == "RandomCropFromBorders":
@@ -237,7 +243,7 @@ class ImageAugmenter:
                 steps.append(A.Superpixels(p=1, p_replace=(min_bound * 0.5, max_bound * 0.5), n_segments=(500, 1000)))
             else:
                 raise Exception("Unknown augmentation type " + aug_name)
-        return A.Compose(steps, **label_opts)
+        return A.ReplayCompose(steps, **label_opts)
 
     def _synthesize_one(self, img_file, label, pipeline):
         image = cv2.imread(img_file)
@@ -305,6 +311,7 @@ class ImageAugmenter:
         }
 
     def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels, step_size_percent: float=0.05):
+        print("Starting random boundry search using " + str(len(training_img_filenames)) + " samples")
         set_size = len(training_img_filenames)
         temp_analytics = {"steps": step_size_percent, "set_size": set_size, "augs": {}, "summaries": {}}
         if path.exists("analytics.json"):
@@ -332,9 +339,7 @@ class ImageAugmenter:
                 continue
             aug_histogram = augs[aug_name]
             cur_intensity = step_size_percent
-            print("Analyzing " + aug_name + "'s acceptable intensity ranges")
             while (cur_intensity <= 1):
-                print("Intensity: " + str(cur_intensity))
                 err_info = self._measureErrorAtTickForAug(cur_intensity, aug_name, training_img_filenames, training_labels)
                 err_ratio = err_info["err"]
                 if first_err is None and err_info["first_err"]["img"] is not None:
@@ -351,6 +356,7 @@ class ImageAugmenter:
             # Checkpoint progress
             with open("analytics.json", "w") as j:
                 json.dump(temp_analytics, j, indent=2)
+                print("Checkpoint: Analyzed " + aug_name + "'s acceptable intensity ranges")
         self.analytics = temp_analytics
         return self.analytics
 
@@ -370,7 +376,6 @@ class ImageAugmenter:
             synth_img_name = aug_name + "_" + str(round(first_err["intensity"] * 100)) + "_errors_start_" + path.basename(first_err["img"])
             rendered_img_path = path.join(html_dir, "imgs", synth_img_name)
             cv2.imwrite(rendered_img_path, test["image"])
-            print("wrote " + rendered_img_path)
             relative_img_path = "imgs/" + synth_img_name
             body.append("<td>" + str(round(first_err["intensity"] * 100)) + "%</td>")
             body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
@@ -385,7 +390,6 @@ class ImageAugmenter:
             synth_img_name = aug_name + "_at_" + str(round(last_success["intensity"] * 100)) + "_still_good_" + path.basename(last_success["img"])
             rendered_img_path = path.join(html_dir, "imgs", synth_img_name)
             cv2.imwrite(rendered_img_path, test["image"])
-            print("wrote " + rendered_img_path)
             relative_img_path = "imgs/" + synth_img_name
             body.append("<td>" + (str(round(last_success["intensity"] * 100))) + "%</td>")
             body.append("<td><img src=\"" + relative_img_path + "\" /></td>")
@@ -443,7 +447,6 @@ class ImageAugmenter:
         body.append("<p>The table below summarizes how your model performs at different intensities of image augmentation.  You can view generated samples that began giving your model problems up to the last intensity where a majority of model outputs were the same.</p>")
         body.append("<table><tr><th>Augmentation</th><th>Intensity vs Diff Error</th><th>First Error Intensity</th><th>First Error</th><th>Last Success Intensity</th><th>Last Success</th></tr>")
         for aug_name in self.analytics["augs"].keys():
-            print("Render " + aug_name)
             self._renderAugRow(aug_name, body, script, html_dir)
         body.append("</table>")
 
@@ -464,15 +467,18 @@ class ImageAugmenter:
         shutil.copy(path.join("assets", "style.css"), path.join(html_dir, "style.css"))
         shutil.copy(path.join("assets", "chart.js"), path.join(html_dir, "chart.js"))
 
-    def synthesizeMore(self, organic_img_filenames, organic_labels, generalization=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1):
+    def synthesizeMore(self, organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html"):
         if self.analytics is None:
             raise Exception("Cannot call before searchRandomizationBoundries")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         gen_count = count if count is not None else len(organic_img_filenames)
         gen_imgs = []
         gen_labels = []
 
         cur_original_index = 0
         filter_by_prediction = min_predicted_diff_error > 0 or max_predicted_diff_error < 1
+        uid = len(os.listdir(output_dir))+1
         while (len(gen_imgs) < gen_count):
             origin_file = organic_img_filenames[cur_original_index]
             origin_labels = organic_labels[cur_original_index]
@@ -484,19 +490,29 @@ class ImageAugmenter:
             max_dice_rolls = 100
             synthetic_img = None
             synthetic_labels = None
+            synthetic_name = None
             for i in range(max_dice_rolls):
-                pipeline = self._buildPipeline(self.label_format, min_random_augmentations, max_random_augmentations)
+                pipeline = self._buildPipeline(realism, min_random_augmentations, max_random_augmentations)
                 base_img = cv2.imread(origin_file)
                 base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
                 synthetic = pipeline(image=base_img, **label_args)
+
+                result_augs = [aug for aug in synthetic['replay']["transforms"]]
+                applied_augs = filter(lambda aug: aug["applied"], result_augs)
+                aug_str = "".join([aug['__class_fullname__'].replace("Random", "")[0:6] for aug in applied_augs])
+                img_basename_no_type = ".".join(path.basename(origin_file).split(".")[0:-1])
+                img_type = path.basename(origin_file).split(".")[-1]
+                synthetic_name = f'''{img_basename_no_type}_{aug_str}_{str(uid)}.{img_type}'''
+                uid += 1
 
                 # Re-use original unchanged labels unless format is set
                 # in which case use the calculated synthetic labels
                 synthetic_labels = origin_labels
                 if self.label_format is not None:
-                    # Remove the image and anything left over is labels
+                    # Remove the image+replay and anything left over is labels
                     synthetic_labels = synthetic.copy()
                     del synthetic_labels["image"]
+                    del synthetic_labels["replay"]
 
                 synthetic_img = synthetic["image"]
                 if not filter_by_prediction:
@@ -513,8 +529,29 @@ class ImageAugmenter:
             if synthetic_img is None:
                 print("Warn: Could not generate valid synthetic from " + origin_file + ", skipping this round")
             else:
-                gen_imgs.append(synthetic_img)
+                synthetic_path = path.join(output_dir, synthetic_name)
+                cv2.imwrite(synthetic_path, synthetic_img)
+                gen_imgs.append(synthetic_path)
                 gen_labels.append(synthetic_labels)
+
+        if preview_html is not None:
+            try:
+                os.unlink(preview_html)
+            except:
+                pass
+            html = ["<html><head><title>Synthetic Image Grid</title></head><body><div class=\"grid\">"]
+            for file in os.listdir(output_dir):
+                html.append("<div class=\"square\">")
+                html.append(f'''<a href="{file}"><img src="{file}" loading="lazy" /></a>''')
+                html.append("</div>")
+            css = ""
+            with open(path.join("assets", "style.css"), "r") as css_file:
+                css = css_file.read()
+            html.append("</div>")
+            html.append("<style>\n" + css + "\n</style>")
+            html.append("</body></html>")
+            with open(path.join(output_dir, preview_html), "w") as preview_file:
+                preview_file.write("\n".join(html))
         return (gen_imgs, gen_labels)
 
     def evaluate(self, img_filenames, img_labels):

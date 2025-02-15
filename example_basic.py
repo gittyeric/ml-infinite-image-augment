@@ -41,10 +41,10 @@ def main():
     # Render a summary of how well the model behaved
     augmenter.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
     # Generate some images based on discovered randomiaation boundries and training data
-    synth = augmenter.synthesizeMore(training_set, model.training_labels)
+    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=50)
     # Use synthesized data as an improvised infinite validation set to test generality
     # and debug where your previously untested model tends to fail
-    validation = augmenter.evaluate(synth["images"], synth["labels"])
+    validation = augmenter.evaluate(synth_imgs, synth_labels)
     print(validation)
 
 main()
