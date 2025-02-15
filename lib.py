@@ -83,6 +83,7 @@ class ImageAugmenter:
         self.augmentations = augmentations
         self.analytics = None
         self.label_format = label_format
+        self.realism_overrides = {}
 
     def _buildBoundryTestPipeline(self, intensity: float, aug_name: str):
         label_opts = {} if self.label_format is None else self.label_format
@@ -162,6 +163,7 @@ class ImageAugmenter:
         augs = aug_set.keys()
 
         for aug_name in augs:
+            realism_to_use = realism if aug_name not in self.realism_overrides else self.realism_overrides[aug_name]
             # Compute max bound based on past err and realism as [0, 1] min/max_bound scalars
             histo = self.analytics["augs"][aug_name]
             first_nonnegligale_intensity = 1.0
@@ -187,11 +189,11 @@ class ImageAugmenter:
             # Min bound is set by the first intensity that caused a non-trivial average error,
             # also shift left by half a step to conservatively assume the non-trivial error
             # started somewhere between intensity test X-axis ticks, scale by realism factor
-            min_bound = (1 - realism) * max(first_nonnegligale_intensity - half_step, 0)
+            min_bound = (1 - realism_to_use) * max(first_nonnegligale_intensity - half_step, 0)
             # Max bound is set by the last intensity that didn't cause a non-critical average error,
             # also shift left by half a step to conservatively assume the critical error
             # started somewhere between intensity test X-axis ticks, scale by realism factor
-            max_bound = (1 - realism) * max(last_noncritical_intensity - half_step, 0)
+            max_bound = (1 - realism_to_use) * max(last_noncritical_intensity - half_step, 0)
 
             # If no real successes for this aug, set to very tiny bounds
             if max_bound <= self.analytics["steps"]:
@@ -239,7 +241,7 @@ class ImageAugmenter:
             elif aug_name == "Downscale":
                 steps.append(A.Downscale(p=1, scale_min=(1 - max_bound * 0.1), scale_max=(1 - min_bound * 0.1)))
             elif aug_name == "SafeRotate":
-                steps.append(A.SafeRotate(p=1, limit=(min_bound * 359.99, max_bound * 359.99), border_mode=1))
+                steps.append(A.SafeRotate(p=1, limit=((min_bound * 359.99) % 360, (max_bound * 359.99) % 360), border_mode=1))
             elif aug_name == "RandomCropFromBorders":
                 steps.append(A.RandomCropFromBorders(p=1, crop_left=max_bound * 0.5, crop_right=max_bound * 0.5, crop_top=max_bound * 0.5, crop_bottom=max_bound * 0.5))
             elif aug_name == "PixelDropout":
@@ -314,6 +316,9 @@ class ImageAugmenter:
             },
             "err": err_sum / len(img_filenames)
         }
+
+    def set_realism_for(self, augmentation_name: str, realism: float):
+        self.realism_overrides[augmentation_name] = realism
 
     def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels, step_size_percent: float=0.05):
         print("Starting random boundry search using " + str(len(training_img_filenames)) + " samples")
@@ -480,10 +485,10 @@ class ImageAugmenter:
         contrast_ratio = synthetic_std / orig_std
 
         # Filter if abs contrast diff dropped below threshold
-        if synthetic_std < 5 and orig_std > 5:
+        if synthetic_std < 3 and orig_std > 3:
             return True
-        # Filter if relative contrast ratio dropped below 10% of original contrast
-        if contrast_ratio < 0.1:
+        # Filter if relative contrast ratio dropped below 5% of original contrast
+        if contrast_ratio < 0.05:
             return True
         return False
 
@@ -563,18 +568,22 @@ class ImageAugmenter:
             except:
                 pass
             html = ["<html><head><title>Synthetic Image Grid</title></head><body><div class=\"grid\">"]
+            discovered_file_count = 0
             for file in os.listdir(output_dir):
                 html.append("<div class=\"square\">")
                 html.append(f'''<a href="{file}"><img src="{file}" loading="lazy" /></a>''')
                 html.append("</div>")
+                discovered_file_count += 1
             css = ""
             with open(path.join("assets", "style.css"), "r") as css_file:
                 css = css_file.read()
             html.append("</div>")
             html.append("<style>\n" + css + "\n</style>")
             html.append("</body></html>")
-            with open(path.join(output_dir, preview_html), "w") as preview_file:
+            preview_path = path.join(output_dir, preview_html)
+            with open(preview_path, "w") as preview_file:
                 preview_file.write("\n".join(html))
+            print("Open " + preview_path + " to view all " + str(discovered_file_count) + " synthetic images")
         return (gen_imgs, gen_labels)
 
     def evaluate(self, img_filenames, img_labels):
