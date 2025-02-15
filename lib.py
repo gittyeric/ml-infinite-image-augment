@@ -118,7 +118,7 @@ class ImageAugmenter:
         elif aug_name == "ElasticTransform":
             step = A.ElasticTransform(p=1.0, alpha=intensity, sigma=intensity*9, alpha_affine=intensity*50, border_mode=1, approximate=False) 
         elif aug_name == "GaussNoise":
-            step = A.GaussNoise(p=1, var_limit=(max(intensity * 50, 1), max(intensity * 50, 1)))
+            step = A.GaussNoise(p=1, var_limit=(max(intensity * 10, 1), max(intensity * 10, 1)))
         elif aug_name == "GaussianBlur":
             step = A.GaussianBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), sigma_limit=(intensity * 10, intensity * 10))
         elif aug_name == "Sharpen":
@@ -126,7 +126,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(round(intensity * 50), round(intensity * 50)), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_min=(1 - intensity * 0.5), scale_max=(1 - intensity * 0.5))
+            step = A.Downscale(p=1, scale_min=(1 - intensity * 0.1), scale_max=(1 - intensity * 0.1))
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomCropFromBorders":
@@ -193,6 +193,11 @@ class ImageAugmenter:
             # started somewhere between intensity test X-axis ticks, scale by realism factor
             max_bound = (1 - realism) * max(last_noncritical_intensity - half_step, 0)
 
+            # If no real successes for this aug, set to very tiny bounds
+            if max_bound <= self.analytics["steps"]:
+                min_bound = 0.0001
+                max_bound = half_step
+
             if aug_name == "Darken":
                 steps.append(A.RandomBrightnessContrast(p=1, brightness_limit=(-max_bound, -min_bound)))
             elif aug_name == "Brighten":
@@ -224,7 +229,7 @@ class ImageAugmenter:
             elif aug_name == "ElasticTransform":
                 steps.append(A.ElasticTransform(always_apply=False, p=1.0, alpha=(0, max_bound), sigma=(min_bound*9, max_bound*9), alpha_affine=(min_bound*50, max_bound*50), interpolation=0, border_mode=1, approximate=False, same_dxdy=False))
             elif aug_name == "GaussNoise":
-                steps.append(A.GaussNoise(p=1, var_limit=(max(min_bound * 50, 1), max(max_bound * 50, 1))))
+                steps.append(A.GaussNoise(p=1, var_limit=(max(min_bound * 10, 1), max(max_bound * 10, 1))))
             elif aug_name == "GaussianBlur":
                 steps.append(A.GaussianBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), sigma_limit=(min_bound * 10, max_bound * 10)))
             elif aug_name == "Sharpen":
@@ -232,7 +237,7 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(round(min_bound * 50), round(max_bound * 50)), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_min=(1 - max_bound * 0.5), scale_max=(1 - min_bound * 0.5)))
+                steps.append(A.Downscale(p=1, scale_min=(1 - max_bound * 0.1), scale_max=(1 - min_bound * 0.1)))
             elif aug_name == "SafeRotate":
                 steps.append(A.SafeRotate(p=1, limit=(min_bound * 359.99, max_bound * 359.99), border_mode=1))
             elif aug_name == "RandomCropFromBorders":
@@ -467,6 +472,21 @@ class ImageAugmenter:
         shutil.copy(path.join("assets", "style.css"), path.join(html_dir, "style.css"))
         shutil.copy(path.join("assets", "chart.js"), path.join(html_dir, "chart.js"))
 
+    def is_critical_contrast_drop(self, orig_img, synthetic_img):
+        orig_gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY)
+        synthetic_gray = cv2.cvtColor(synthetic_img, cv2.COLOR_BGR2GRAY)
+        orig_std = orig_gray.std()
+        synthetic_std = synthetic_gray.std()
+        contrast_ratio = synthetic_std / orig_std
+
+        # Filter if abs contrast diff dropped below threshold
+        if synthetic_std < 5 and orig_std > 5:
+            return True
+        # Filter if relative contrast ratio dropped below 10% of original contrast
+        if contrast_ratio < 0.1:
+            return True
+        return False
+
     def synthesizeMore(self, organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html"):
         if self.analytics is None:
             raise Exception("Cannot call before searchRandomizationBoundries")
@@ -496,6 +516,10 @@ class ImageAugmenter:
                 base_img = cv2.imread(origin_file)
                 base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
                 synthetic = pipeline(image=base_img, **label_args)
+                synthetic_img = synthetic["image"]
+
+                if self.is_critical_contrast_drop(base_img, synthetic_img):
+                    continue
 
                 result_augs = [aug for aug in synthetic['replay']["transforms"]]
                 applied_augs = filter(lambda aug: aug["applied"], result_augs)
@@ -514,7 +538,6 @@ class ImageAugmenter:
                     del synthetic_labels["image"]
                     del synthetic_labels["replay"]
 
-                synthetic_img = synthetic["image"]
                 if not filter_by_prediction:
                     break
 

@@ -45,7 +45,7 @@ table img {
     aspect-ratio: 1/ 1;
     display: flex;
     align-items: center;
-    padding: 1%;
+    padding: 0;
     background-color: #ddd;
     color: #fff;
   }

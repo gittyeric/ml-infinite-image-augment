@@ -37,11 +37,11 @@ def confidence_aware_diff_error(original_label, augmented_label):
 def main():
     augmenter = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
     # Analyze training set for model weaknesses under different randomizations
-    augmenter.searchRandomizationBoundries(training_set, model.training_labels)
+    augmenter.searchRandomizationBoundries(training_set, model.training_labels, step_size_percent=0.02)
     # Render a summary of how well the model behaved
     augmenter.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
     # Generate some images based on discovered randomiaation boundries and training data
-    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=50)
+    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=50, realism=1, max_random_augmentations=10)
     # Use synthesized data as an improvised infinite validation set to test generality
     # and debug where your previously untested model tends to fail
     validation = augmenter.evaluate(synth_imgs, synth_labels)
