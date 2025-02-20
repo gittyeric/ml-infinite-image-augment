@@ -32,8 +32,9 @@ def confidence_aware_diff_error(original_label, augmented_label):
     # Diff of confidence % is also error %, 1-to-1
     return original_label["γ"] - augmented_label["γ"]
 
-# Spin up a predictor based on just 2 images and generate a validation
-# set from the training set to validate that it works okay
+# This end-to-end example shows how to plumb a model up, search for randomization boundries,
+# generate reports and finally generate some semi-realistic synthetic images and evaluate
+# how the model performs on them.
 def main():
     img_aug = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
     # Analyze training set for model weaknesses under different randomizations
