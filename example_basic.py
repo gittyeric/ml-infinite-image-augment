@@ -16,7 +16,7 @@ def on_off_predictor(img_file):
     return model.predict(img)
 
 # Calculate the "difference error" between an organic label and the model
-# output of a synthetic spinoff by comparing output values or
+# output from a synthetic spinoff image by comparing output values or
 # signaling error if the model's confidence drops due to synthetic mangling
 def confidence_aware_diff_error(original_label, augmented_label):
     # Max error if confidence falls below threshold
@@ -37,16 +37,19 @@ def confidence_aware_diff_error(original_label, augmented_label):
 def main():
     augmenter = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
     # Analyze training set for model weaknesses under different randomizations
-    augmenter.searchRandomizationBoundries(training_set, model.training_labels, step_size_percent=0.02)
+    augmenter.searchRandomizationBoundries(training_set, model.training_labels, step_size_percent=0.05)
     # Render a summary of how well the model behaved
     augmenter.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
     # Control realism on a per-feature basis
-    augmenter.set_realism_for("SafeRotate", 0) # Assert the model is rotation-invariant
+    augmenter.set_augmentation_realism("SafeRotate", 0) # Max rotation since model is rotation-invariant
+    augmenter.set_augmentation_weight("SafeRotate", 3) # 3x more likely to rotate than default
+    augmenter.set_augmentation_realism("RandomSizedCrop", 0.5) # Only do small crop border cuts, but...
+    augmenter.set_augmentation_weight("RandomSizedCrop", 2) # 2x more likely to crop at all
     # Generate some images based on discovered randomiaation boundries and training data
-    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=100, realism=1, max_random_augmentations=10)
+    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=100, realism=0.5, max_random_augmentations=10)
     # Use synthesized data as an improvised infinite validation set to test generality
     # and debug where your previously untested model tends to fail
     validation = augmenter.evaluate(synth_imgs, synth_labels)
-    print("Average diff err on " + len(synth_imgs) + " validation images: " + str(validation["avg_diff_error"]))
+    print("Average diff err on " + str(len(synth_imgs)) + " validation images: " + str(validation["avg_diff_error"]))
 
 main()

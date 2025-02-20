@@ -1,12 +1,16 @@
 # ml-infinite-image-augment
 
-WORK-IN-PROGRESS! This README is just an empty contract of an implementation under construction!
-
-This 2-in-1 tool analyzes _nearly any_ Python computer vision model by testing it in a synthetic world derived from your raw training dataset but never _too_ randomized. Use analysis results to both test your model in extreme scenes or generate synthetic datasets either realistic to specialize or slightly too random to generalize under a single `realism` hyperparameter.  In slightly more detail it:
+This 2-in-1 tool analyzes _nearly any_ Python computer vision model by testing it in a synthetic world derived from your raw training dataset while never averaging _too_ random. Use analysis results to both evaluate your model in extreme scenes or generate synthetic datasets either realistic to specialize pushing the edge of randomization your model can handle, under a single `realism` hyperparameter.  In slightly more detail it:
 
 1. Discovers boundries of randomization (How much can I rotate or blur my training set without affecting model output?)
 1. Plots how your model reacts to key randomizations at different intensities (What brighness level affects model output across 50% of training samples?)
 1. Uses failure boundries to generate "infinite" "un/realistic" datasets that can be used for further training or as an infinite validation set!
+
+Here's some synthetically generated samples at realism=0, 0.5 and 1 respectively:
+
+![Realism 0](doc/real-0.png "Realism 0")
+![Realism 0.5](doc/real-0.5.png "Realism 0.5")
+![Realism 1](doc/real-1.png "Realism 1")
 
 The only Python you need to provide at minimum is a `predict(image) -> labels` function used to get model outputs, and works for ANY vision model and MOST label types!  If you allow geometric, pixel shifting image augmentation (ex. rotation) and your labels are based on pixel position, deep support for transforming labels to match augmented images is also supported (ex. rotate segmentation label shapes to match the augmented image's rotation) via the Albumentations library.
 
@@ -14,7 +18,7 @@ The only Python you need to provide at minimum is a `predict(image) -> labels` f
 
 - AutoML-ish selection of image randomization parameters to safely expand any model's training dataset, synthetically and cheaply
 - Auto generate synthetic training data that's as realistic or bizarre as your model can tolerate, under 1 hyperparameter.
-- Quickly analyze how your model degrades under many common real-world augmentations (blur, fog, rotation...)
+- Quickly analyze how your model degrades under many common real-world augmentations (blur, motion, rotation...)
 - Your model is in Python or can be system called from Python
 
 ## Why not use this?
@@ -27,30 +31,26 @@ The only Python you need to provide at minimum is a `predict(image) -> labels` f
 
 - Clone this Git repo to your machine
 - `pip install -r requirements.txt` to install dependecies with Python >= 3.6 installed.
-- Open examples/basic/example.py as a starting template and modify as you run through...
+- Open example_basic.py as a starting template and modify as you run through
 
 ## Step 1: Plumbing up your model
 
-Simply instantiate an instance of AugmentBoundrySearch and provide your `predict(image_filename) -> labels` model wrapper function.  This function is typically a shallow lambda wrapper around an ML or opencv `predict(x)` model function and also loads the input image in the model's preferred format.
+Simply instantiate an instance of ImageAugmenter and provide your `predict(image_filename) -> labels` model wrapper function.  This function is typically a shallow lambda wrapper around an ML or opencv `predict(x)` model function and also loads the input image in the model's preferred format.
 
 ### (Optional) Custom label error calculation
 
 You may also want to specify the 2nd constructor argument `diff_error(augmented_labels, original_labels)` which returns an error value from 0 to 1, with 0 signifying both labels are identical, or 1 meaning they are as mislabeled as possible.  Default behavior is to treat any string-ified difference between them as error=1 and string equality as error=0.  Typically for boolean or categorization it doesn't need modification, whereas a custom lambda for IoU area overlap percentage would be useful for bounding boxes, etc.  The labels' type only has meaning to you (unless you use the `label_format` option) so define it in whatever way lets you easily implement this function.
 
-Here's a thorough example for the sample boolean classifier we assume called `my_predict` that infers boolean return values from an input image:
+### (Optional) Support label pixel translation
 
-```
-diff_error = lambda augmented_labels, original_labels: 1 if original_label != augmented_label else 0
-augmenter = new ImageAugmenter(my_predict, diff_error=diff_error)
-```
+If your labels contain positional data (bounding boxes, segmentation), you'll need to take care to transform them (ex. rotate labels' segment shapes when a synthetic image is generated by rotating a training image).  This is supported under-the-hood by [Albumentations](https://albumentations.ai/docs/getting_started/bounding_boxes_augmentation/) so you can see what `label_format` you'll need in ImageAugmenter's constructor which will also dictate the shape of labels you might pass to multiple functions (TODO: link to example code that defines handling COCO segmentation labels).
 
 ## Step 2: Analyze Model Augmentation Boundries
 
-This step provides clear visibility into what kind and intensity of augmentations degrade your model's performance while also becoming the basis for sane bounds in random data generation.  Running the line below will take a long time depending on options and dataset size but will save its progress as it proceeds to analysis.json for resuming later or use in data generation:
+This step provides clear visibility into what intensity per augmentation degrades your model's performance while also becoming the basis for sane bounds in random data generation.  Running the line below will take a long time depending on options and dataset size but will save its progress as it proceeds to analysis.json for resuming later or use in data generation:
 
 ```
-boundries = augmenter.searchRandomizationBoundries(training_img_filenames)
-print(boundries)
+augmenter.searchRandomizationBoundries(training_img_filenames, training_labels)
 ```
 
 searchRandomizationBoundries offers plenty of customization (see API section) to focus on only the augmentations your model needs to be resilient to as well as tuning for accuracy vs search speed.  `analyze.json` is used as a resume-cache so delete this file if you ever want to `searchRandomizationBoundries` from scratch.
@@ -82,9 +82,9 @@ To see how your current or future model (after retraining with synthetic data, o
 print(augmenter.evaluate(img_filenames, synthetic_labels))
 ```
 
-# API
+# ImageAugmenter class API
 
-## ImageAugmenter(my_predict, diff_error, augmentations=ALL_AUGMENTATIONS) class constructor
+## ImageAugmenter(my_predict, diff_error, augmentations=ALL_AUGMENTATIONS, label_format=None) class constructor
 
 The main class for grid searching over a training dataset with a model to determine random augmentation limits that the model can tolerate, and store the results.
 
@@ -96,7 +96,7 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 
 `augmentations`: (Optional) List of augmentation string types to apply for all downstream operations, defaults to all supported augmentations that are mostly 1-to-1 with those provided in the Albumentations library.  You can pick-and-choose each individually if you know your model won't be able to handle certain augmentation types or want to prototype with a smaller/faster feature set.  Available types are:
 
-`label_format`: Make dataset synthesis label-type aware so that for example bounding boxes are geometrically transformed to match the augmentations applied to the image.  This option is passed through as-is to the Albumentations library for it to figure out the label transformations, reference [their documentation](https://albumentations.ai/docs/getting_started/bounding_boxes_augmentation/) for supported label formats.  COCO bounding box example: 
+`label_format`: (Optional) Make dataset synthesis label-type aware so that for example bounding boxes are geometrically transformed to match the augmentations applied to the image.  This option is passed through as-is to the Albumentations library for it to figure out the label transformations, reference [their documentation](https://albumentations.ai/docs/getting_started/bounding_boxes_augmentation/) for supported label formats.  COCO bounding box example: 
 
 #### Augmentation types
 
@@ -127,10 +127,10 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 `Downscale`: Lossily reduce image resolution
 `MultiplicitiveNoise`: Add random noise to image
 `PixelDropout`: Percentage of random pixels to blacken
-`RandomCropFromBorders`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
+`RandomSizedCrop`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
 `Superpixels`: Randomly transplant patches of image elsewhere
 
-### ImageAugmenter.searchRandomizationBoundries(training_img_filenames, training_labels, step_size_percent=5)
+### searchRandomizationBoundries(training_img_filenames: list[str], training_labels, step_size_percent: float=0.05)
 
 The main method that examines all training sample images passed in, usually everything you've got.  Because it takes a long time to run, it stores intermediate and final results to `analysis.json` which you can delete manually to find boundries from scratch (ex. you collected more training data and want to re-run). You should generally feed in as many training_img_filenames as possible to strengthen boundry search confidence and ensure future generated data isn't too unrealistic.  On the other hand you may want to limit to ~50000 maximally diverse training samples so analysis completes faster but only if time is a virtue for you.
 
@@ -142,25 +142,31 @@ All other class methods assume you've run this and already computed boundry stat
 
 `step_size_percent`: How big of steps to take when finding an augmentation feature's limit, default of 5 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running searchRandomizationBoundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
 
-## ImageAugmenter.renderBoundries(html_dir="analytics")
+`analytics_cache`: The filename to use to store search cache calculations, defaults to analytics.json
+
+## set_augmentation_realism(augmentation_name: str, realism: float)
+
+Override global realism and set for just this augmentation_name. Values close to one add less randomiation, 0 edges to the limit of what your model currently handles, and negative values are wildly random to potentially aid in generalization.
+
+## set_augmentation_weight(augmentation_name: str, weight)
+
+Sets the probability of an augmentation being applied.  weight is relative to other augmentations which are typically 1 (uniform distribution), so a value of 2 would double the odds of selection relative to others while 0.5 cuts in half.
+
+## renderBoundries(html_dir="analytics")
 
 Render the results of `searchRandomizationBoundries` to HTML for easy visualization of how your model performs against varying degrees of augmention.
 
-`html_dir`: The directory to write output HTML and image files to, defaults to "analytics" relative directory.
+`html_dir`: (Optional) The directory to write output HTML and image files to, defaults to "analytics" relative directory.
 
-## ImageAugmenter.synthesizeMore(training_img_filenames, training_labels, label_format=None, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1)
+## synthesizeMore(organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html")
 
-The magic image generator
+Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
-`training_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
+`organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
-`training_labels` List of ground-truth (presumably real-world) training labels that map 1-to-1 with `training_img_filenames`.
+`organic_labels` List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.
 
-```
-import albumentations as A
-label_format = {"bbox_params": A.BboxParams(format='coco', min_area=1024, min_visibility=0.1, label_fields=['class_labels'])}
-augmenter.synthesizeMore([...], [...], label_format=label_format)
-```
+`realism`: A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
 
 `count`: Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
 
@@ -172,6 +178,24 @@ augmenter.synthesizeMore([...], [...], label_format=label_format)
 
 `max_predicted_diff_error`: The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
 
-## ImageAugmenter.evaluate(img_filenames, synthetic_labels)
+`output_dir`: The folder to save images and `__preview.html` to.
+
+`preview_html`: The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
+
+## evaluate(img_filenames, img_labels)
 
 Run `my_predict` against all img_filenames which are typically generated by `synthesizeMore` as well as the matching synthetic truth labels and compare to the model's output labels ran against img_filenames.  This is convenient to test synthetic data against different versions of your model, presumably your model before and after training on the synthetic dataset.  Can also be used to compare real-world vs synthetic model performance.  If your new model performs poorly on a synthetic batch it was trained on, it suggests your `realism` hyperparameter may be too high and you're randomizing training data to the point of mangling it for even the best model (ex. so much extra brightness the image is pure white).  If your model performs extremely well on a synthetic batch it was trained on while retaining real-world accuracy, consider increasing `realism` to handle more real-world edge cases by training on even stranger synthetic samples.  Also consider setting `max_predicted_diff_error` to < 1 to task your model with filtering out overly unrealistic synthetic samples.
+
+`img_filenames`: list of string filenames to use in evaluation.
+
+`img_labels`: The 1-to-1 matching labels of `img_filenames`.
+
+Returns an object containing:
+
+```
+{
+    "avg_diff_error": Average diff error across all evaluated samples,
+    "output_differs_count": Count of outputs that differed from the label significantly,
+    "differing_output_errs": All output errors
+}
+```
