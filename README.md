@@ -103,6 +103,10 @@ To see how your current or future model (after retraining with synthetic data, o
 print(img_aug.evaluate(synthetic_img_filenames, synthetic_labels))
 ```
 
+## Step 5: (Optional) Adding to existing project
+
+Other than pip dependencies, everything you need will always and forever live in just the `augment.py` class file, so after prototyping you can easily paste it into any existing project to use as a library.
+
 # ImageAugmenter class API
 
 ## ImageAugmenter(my_predict, diff_error, augmentations=ALL_AUGMENTATIONS, label_format=None) class constructor
