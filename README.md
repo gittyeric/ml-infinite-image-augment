@@ -6,7 +6,7 @@ This 2-in-1 tool analyzes _nearly any_ image-based vision model by testing it in
 1. Plots how your model reacts to key randomizations at different intensities (What brighness level affects model output across 50% of training samples?)
 1. Uses failure boundries to generate "infinite" "un/realistic" datasets that can be used for further training or as an infinite validation set!
 
-## Tool 1: See where your model breaks
+## Tool 1: When does my model break?
 
 "What brightness changes my model's output?"
 
@@ -15,7 +15,7 @@ This 2-in-1 tool analyzes _nearly any_ image-based vision model by testing it in
 ![Analysis](doc/analysis1.png "Analysis")
 ![Analysis](doc/analysis2.png "Analysis")
 
-## Tool 2: Generate safe synthetics
+## Tool 2: Generate sane synthetics
 
 Some synthetically generated samples at realism=0, 0.5 and 1 respectively:
 
