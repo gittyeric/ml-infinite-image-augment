@@ -1,21 +1,8 @@
 # ml-infinite-image-augment
 
-This 2-in-1 tool analyzes _nearly any_ image-based vision model by testing it in a synthetic world derived from your raw training dataset while never becoming _too_ random. Use analysis results to visually diagnose your model or expand your training/validation set with high quality synthetic mutant images with mutant ground-truths to match.  A single `realism` hyperparameter controls how mutant or realistic synthetic generation should use.  In slightly more detail it:
+This 2-in-1 tool analyzes _nearly any_ image-based vision model by testing it in a synthetic world derived from your raw training dataset while never becoming _too_ random. Use analysis results to visually diagnose your model or expand your training/validation set with high quality synthetic mutant images with mutant ground-truths to match.  A single `realism` hyperparameter controls how mutant or realistic fake images should be.
 
-1. Discovers boundries of randomization (How much can I rotate or blur my training set without affecting model output?)
-1. Plots how your model reacts to key randomizations at different intensities (What brighness level affects model output across 50% of training samples?)
-1. Uses failure boundries to generate "infinite" "un/realistic" datasets that can be used for further training or as an infinite validation set!
-
-## Tool 1: When does my model break?
-
-"What brightness changes my model's output?"
-
-"Is my model rotation invariant?"
-
-![Analysis](doc/analysis1.png "Analysis")
-![Analysis](doc/analysis2.png "Analysis")
-
-## Tool 2: Generate sane synthetics
+## Tool 1: Generate reasonable synthetics
 
 Some synthetically generated samples at realism=0, 0.5 and 1 respectively:
 
@@ -25,10 +12,27 @@ Model "Hard Mode" fake images (r=0):
 Reasonable but not boring (r=0.5):
 ![Realism 0.5](doc/real-0.5.png "Realism 0.5")
 
-Reasonable according to your model (r=1):
+Very reasonable according to your model (r=1):
 ![Realism 1](doc/real-1.png "Realism 1")
 
+## Tool 2: When does my model break?
+
+"What brightness changes my model's output?"
+
+"Is my model rotation invariant?"
+
+![Analysis](doc/analysis1.png "Analysis")
+![Analysis](doc/analysis2.png "Analysis")
+
+
+
 The only Python you need to provide at minimum is a `predict(image) -> labels` function used to get model outputs, and works for ANY vision model and MOST label types!  If you allow geometric, pixel shifting image augmentation (ex. rotation) and your labels are based on pixel position, deep support for transforming labels to match augmented images is also supported (ex. rotate segmentation label shapes to match the augmented image's rotation) via the Albumentations library.
+
+In slightly more detail it:
+
+1. Discovers boundries of randomization (How much can I rotate or blur my training set without affecting model output?)
+1. Plots how your model reacts to key randomizations at different intensities (What brighness level affects model output across 50% of training samples?)
+1. Uses failure boundries to generate "infinite" "un/realistic" datasets that can be used for further training or as an infinite validation set!
 
 ## Why use this?
 
