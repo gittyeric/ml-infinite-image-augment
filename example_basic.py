@@ -1,4 +1,4 @@
-from lib import ImageAugmenter
+from augment import ImageAugmenter
 from examples.basic.model import SiftSimilarity
 import cv2
 import os
@@ -35,21 +35,21 @@ def confidence_aware_diff_error(original_label, augmented_label):
 # Spin up a predictor based on just 2 images and generate a validation
 # set from the training set to validate that it works okay
 def main():
-    augmenter = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
+    img_aug = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
     # Analyze training set for model weaknesses under different randomizations
-    augmenter.searchRandomizationBoundries(training_set, model.training_labels, step_size_percent=0.05)
+    img_aug.searchRandomizationBoundries(training_set, model.training_labels)
     # Render a summary of how well the model behaved
-    augmenter.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
+    img_aug.renderBoundries(html_dir=path.join("examples", "basic", "analysis"))
     # Control realism on a per-feature basis
-    augmenter.set_augmentation_realism("SafeRotate", 0) # Max rotation since model is rotation-invariant
-    augmenter.set_augmentation_weight("SafeRotate", 3) # 3x more likely to rotate than default
-    augmenter.set_augmentation_realism("RandomSizedCrop", 0.5) # Only do small crop border cuts, but...
-    augmenter.set_augmentation_weight("RandomSizedCrop", 2) # 2x more likely to crop at all
+    img_aug.set_augmentation_realism("SafeRotate", 0) # Unreal + max rotation since model is rotation-invariant
+    img_aug.set_augmentation_weight("SafeRotate", 3) # 3x more likely to rotate than default
+    img_aug.set_augmentation_realism("RandomSizedCrop", 0.5) # Only do small crop border cuts, but...
+    img_aug.set_augmentation_weight("RandomSizedCrop", 2) # 2x more likely to crop at all
     # Generate some images based on discovered randomiaation boundries and training data
-    synth_imgs, synth_labels = augmenter.synthesizeMore(training_set, model.training_labels, count=100, realism=0.5, max_random_augmentations=10)
+    synth_imgs, synth_labels = img_aug.synthesizeMore(training_set, model.training_labels, count=50, realism=0.5)
     # Use synthesized data as an improvised infinite validation set to test generality
     # and debug where your previously untested model tends to fail
-    validation = augmenter.evaluate(synth_imgs, synth_labels)
+    validation = img_aug.evaluate(synth_imgs, synth_labels)
     print("Average diff err on " + str(len(synth_imgs)) + " validation images: " + str(validation["avg_diff_error"]))
 
 main()
