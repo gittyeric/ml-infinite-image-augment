@@ -131,32 +131,54 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 
 ##### Color
 `Brighten`: Increase brightness
+
+
 `Contrast`: Increase global contrast
+
 `Darken`: Decrease brightness
+
 `Decontrast`: Decrease global contrast
+
 `Desaturate`: Decrease global image saturation
+
 `Dehue`: Shift global image hue negative
+
 `Hue`: Shift global image hue positive
+
 `LessBlue`: Reduce contribution of Blue channel
+
 `LessGreen`: Reduce contribution of Green channel
+
 `LessRed`: Reduce contribution of Red channel
+
 `MoreBlue`: Reduce contribution of Blue channel
+
 `MoreGreen`: Reduce contribution of Green channel
+
 `MoreRed`: Reduce contribution of Red channel
+
 `Saturate`: Increase global image saturation
 
 ##### Distortion
 `ElasticTransform`: Randomly stretch the image in 3D
+
 `GaussianBlur`: Increase uniform blur
+
 `MotionBlur`: Increase camera motion blur effect
+
 `SafeRotate`: Rotate the image
+
 `Sharpen`: Sharpen the image
 
 ##### Pixel Dropouts
 `Downscale`: Lossily reduce image resolution
+
 `MultiplicitiveNoise`: Add random noise to image
+
 `PixelDropout`: Percentage of random pixels to blacken
+
 `RandomSizedCrop`: Crop an ever smaller random rectangle in the image and stretch it to fill the original frame
+
 `Superpixels`: Randomly transplant patches of image elsewhere
 
 ### searchRandomizationBoundries(training_img_filenames: list[str], training_labels, step_size_percent: float=0.05)

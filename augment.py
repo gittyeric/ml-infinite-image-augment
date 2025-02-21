@@ -25,7 +25,7 @@ COLOR_AUGMENTATIONS = [
 ]
 
 DISTORTION_AUGMENTATIONS = [
-    # TODO "ElasticTransform",
+    "ElasticTransform",
     "GaussianBlur",
     "MotionBlur",
     "SafeRotate",
@@ -64,7 +64,7 @@ AUG_PROB_DIST={
     "MoreGreen": 0.25,
     "MoreRed": 0.25,
     "Saturate": 0.5,
-    # TODO "ElasticTransform": 1,
+    "ElasticTransform": 1,
     "GaussianBlur": 0.5,
     "MotionBlur": 0.5,
     "SafeRotate": 1,
@@ -192,7 +192,7 @@ class ImageAugmenter:
         elif aug_name == "Desaturate":
             step = A.HueSaturationValue(p=1, sat_shift_limit=(intensity * -100, intensity * -100))
         elif aug_name == "ElasticTransform":
-            step = A.ElasticTransform(p=1.0, alpha=intensity, sigma=intensity*9, alpha_affine=intensity*50, border_mode=1, approximate=False) 
+            step = A.ElasticTransform(p=1.0, alpha=(intensity*50), sigma=5, approximate=False) 
         elif aug_name == "MultiplicitiveNoise":
             step = A.MultiplicativeNoise(p=1, multiplier=(1 + intensity * 4, 1 + intensity * 4), per_channel=True, elementwise=True)
         elif aug_name == "GaussianBlur":
@@ -298,7 +298,7 @@ class ImageAugmenter:
             elif aug_name == "Desaturate":
                 steps.append(A.HueSaturationValue(p=1, sat_shift_limit=(-max_100, -min_100)))
             elif aug_name == "ElasticTransform":
-                steps.append(A.ElasticTransform(always_apply=False, p=1.0, alpha=(0, max_1), sigma=(min_1*9, max_1*9), alpha_affine=(min_1*50, max_1*50), interpolation=0, border_mode=1, approximate=False, same_dxdy=False))
+                steps.append(A.ElasticTransform(p=1, alpha=min_1*50 + random.random() * (1 + (max_1 - min_1)*50), sigma=1 + 9 * random.random(), approximate=False))
             elif aug_name == "MultiplicitiveNoise":
                 steps.append(A.MultiplicativeNoise(p=1, multiplier=(1 + min_1 * 4, 1 + max_1 * 4), per_channel=True, elementwise=True))
             elif aug_name == "GaussianBlur":
@@ -435,7 +435,6 @@ class ImageAugmenter:
             body.append("<td>No Successes</td>")
             body.append("<td>No Successes</td>") 
         body.append("</tr>")
-        # TODO: Draw graph
         graph_data = {
             "labels": [point[0] for point in aug_histogram], 
             "datasets": [{"label": "Diff Error", "data": [point[1]*100 for point in aug_histogram], "borderColor": "#cc3333", "fill": False, "tension": 0.4}]}
@@ -595,10 +594,8 @@ class ImageAugmenter:
         "\n".join(script) + \
         "</script>" + \
         "\n</body></html>"
-        if not os.path.exists(html_dir):
-            os.makedirs(html_dir)
-        if not os.path.exists(path.join(html_dir, "imgs")):
-            os.makedirs(path.join(html_dir, "imgs"))
+        os.makedirs(html_dir, exist_ok=True)
+        os.makedirs(path.join(html_dir, "imgs"), exist_ok=True)
         full_path = path.join(html_dir, "index.html")
         with open(full_path, "w") as f:
             f.write(html)
@@ -632,8 +629,7 @@ class ImageAugmenter:
         """
         if self.analytics is None:
             raise Exception("Cannot call before searchRandomizationBoundries")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
         gen_count = count if count is not None else len(organic_img_filenames)
         gen_imgs = []
         gen_labels = []
