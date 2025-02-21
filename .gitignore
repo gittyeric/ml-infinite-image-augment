@@ -2,4 +2,5 @@ __pycache__
 analytics.json
 generated
 analytics
+temp.*
 **/analysis

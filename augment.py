@@ -192,7 +192,7 @@ class ImageAugmenter:
         elif aug_name == "Desaturate":
             step = A.HueSaturationValue(p=1, sat_shift_limit=(intensity * -100, intensity * -100))
         elif aug_name == "ElasticTransform":
-            step = A.ElasticTransform(p=1.0, alpha=(intensity*50), sigma=5, approximate=False) 
+            step = A.ElasticTransform(p=1.0, alpha=(intensity*150), sigma=10, approximate=False) 
         elif aug_name == "MultiplicitiveNoise":
             step = A.MultiplicativeNoise(p=1, multiplier=(1 + intensity * 4, 1 + intensity * 4), per_channel=True, elementwise=True)
         elif aug_name == "GaussianBlur":
@@ -298,7 +298,7 @@ class ImageAugmenter:
             elif aug_name == "Desaturate":
                 steps.append(A.HueSaturationValue(p=1, sat_shift_limit=(-max_100, -min_100)))
             elif aug_name == "ElasticTransform":
-                steps.append(A.ElasticTransform(p=1, alpha=min_1*50 + random.random() * (1 + (max_1 - min_1)*50), sigma=1 + 9 * random.random(), approximate=False))
+                steps.append(A.ElasticTransform(p=1, alpha=min_1*150 + random.random() * (1 + (max_1 - min_1)*150), sigma=1 + 19 * random.random(), approximate=False))
             elif aug_name == "MultiplicitiveNoise":
                 steps.append(A.MultiplicativeNoise(p=1, multiplier=(1 + min_1 * 4, 1 + max_1 * 4), per_channel=True, elementwise=True))
             elif aug_name == "GaussianBlur":
