@@ -174,6 +174,12 @@ def confidence_aware_diff_error(original_label, augmented_label):
 def err_if_not_strict_eq(original_labels, aug_labels):
     return 0 if str(original_labels) == str(aug_labels) else 1
 
+def verbose_synthetic_namer(organic_img_name: str, label, uid: int, applied_augs: list):
+    aug_str = "".join([aug['__class_fullname__'].replace("Random", "")[0:6] for aug in applied_augs])
+    img_basename_no_type = ".".join(organic_img_name.split(".")[0:-1])
+    img_type = organic_img_name.split(".")[-1]
+    return f'''{img_basename_no_type}_{aug_str}_{str(uid)}.{img_type}'''
+
 class ImageAugmenter:
     def __init__(self, my_predict: lambda img_filename: str = None, diff_error: lambda orig, augmented: float=err_if_not_strict_eq, augmentations: list[str]=ALL_AUGMENTATIONS, label_format=None):
         """
@@ -598,7 +604,6 @@ class ImageAugmenter:
             self.predict = new_default_predictor(training_img_filenames, labels)
             self.diff_error = confidence_aware_diff_error
             print("Using default my_predict edge-based model for finding randomization boundries trained on " + str(len(training_img_filenames)) + " samples")
-        print("Starting random boundry search using " + str(len(training_img_filenames)) + " samples")
         set_size = len(training_img_filenames)
         temp_analytics = {"steps": step_size_percent, "set_size": set_size, "augs": {}, "summaries": {}}
         if path.exists(analytics_cache):
@@ -612,6 +617,8 @@ class ImageAugmenter:
                         print("Training set size changed, searching boundries from scratch")
                 else:
                     print("Step size changed, searching boundries from scratch")
+        else:
+            print("Starting random boundry search using " + str(len(training_img_filenames)) + " samples")
 
         augs = temp_analytics["augs"]
         summaries = temp_analytics["summaries"]
@@ -622,7 +629,6 @@ class ImageAugmenter:
             if aug_name not in augs:
                 augs[aug_name] = []
             else:
-                print("Skipping " + aug_name + ", already processed")
                 continue
             aug_histogram = augs[aug_name]
             cur_intensity = step_size_percent
@@ -679,7 +685,33 @@ class ImageAugmenter:
         shutil.copy(path.join("assets", "style.css"), path.join(html_dir, "style.css"))
         shutil.copy(path.join("assets", "chart.js"), path.join(html_dir, "chart.js"))
 
-    def synthesizeMore(self, organic_img_filenames: list[str], organic_labels: list = None, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html"):
+    def _is_valid_synthetic(self, organic_img, organic_labels, synthetic, min_predicted_diff_error, max_predicted_diff_error):
+        filter_by_prediction = min_predicted_diff_error > 0 or max_predicted_diff_error < 1
+        if self._is_critical_contrast_drop(organic_img, synthetic["image"]):
+            return False
+
+        # Re-use original unchanged labels unless format is set
+        # in which case use the calculated synthetic labels
+        synthetic_labels = organic_labels
+        if self.label_format is not None:
+            # Remove the image+replay and anything left over is labels
+            synthetic_labels = synthetic.copy()
+            del synthetic_labels["image"]
+            del synthetic_labels["replay"]
+
+        if filter_by_prediction:
+            temp_filename, cleanup = self._write_temp(organic_img, synthetic["image"])
+            predicted = self.predict(temp_filename)
+            cleanup()
+            err = self.diff_error(organic_labels, predicted)
+            if err > max_predicted_diff_error or err < min_predicted_diff_error:
+                return False
+        return True
+
+    def synthesizeMore(self, organic_img_filenames: list[str], organic_labels: list = None, \
+                       realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, \
+                       min_predicted_diff_error=0, max_predicted_diff_error=1, \
+                       image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html"):
         """
         Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
@@ -699,6 +731,8 @@ class ImageAugmenter:
 
         `max_predicted_diff_error`: (Optional) The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
 
+        `image_namer`: (Optional) function that returns the relative image name based on: (raw input relative image path, matching label, uid, applied Albumentation transform summary)
+
         `output_dir`: (Optional) The folder to save images and `__preview.html` to.
 
         `preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
@@ -712,12 +746,11 @@ class ImageAugmenter:
         gen_labels = []
 
         cur_original_index = 0
-        filter_by_prediction = min_predicted_diff_error > 0 or max_predicted_diff_error < 1
         uid = len(os.listdir(output_dir))+1
         while (len(gen_imgs) < gen_count):
             origin_file = organic_img_filenames[cur_original_index]
-            origin_labels = labels[cur_original_index]
-            label_args = {} if self.label_format is None else origin_labels
+            organic_labels = labels[cur_original_index]
+            label_args = {} if self.label_format is None else organic_labels
 
             # For each input image roll the dice up to N times
             # to find an acceptable augmented image before warning
@@ -731,41 +764,18 @@ class ImageAugmenter:
                 base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
                 pipeline = self._buildPipeline(realism, base_img.shape[1], base_img.shape[0], min_random_augmentations, max_random_augmentations)
                 synthetic = pipeline(image=base_img, **label_args)
-                synthetic_img = synthetic["image"]
 
-                if self._is_critical_contrast_drop(base_img, synthetic_img):
-                    continue
-
-                result_augs = [aug for aug in synthetic['replay']["transforms"]]
-                applied_augs = filter(lambda aug: aug["applied"], result_augs)
-                aug_str = "".join([aug['__class_fullname__'].replace("Random", "")[0:6] for aug in applied_augs])
-                img_basename_no_type = ".".join(path.basename(origin_file).split(".")[0:-1])
-                img_type = path.basename(origin_file).split(".")[-1]
-                synthetic_name = f'''{img_basename_no_type}_{aug_str}_{str(uid)}.{img_type}'''
-                uid += 1
-
-                # Re-use original unchanged labels unless format is set
-                # in which case use the calculated synthetic labels
-                synthetic_labels = origin_labels
-                if self.label_format is not None:
-                    # Remove the image+replay and anything left over is labels
-                    synthetic_labels = synthetic.copy()
-                    del synthetic_labels["image"]
-                    del synthetic_labels["replay"]
-
-                if not filter_by_prediction:
-                    break
-
-                temp_filename, cleanup = self._write_temp(origin_file, synthetic["image"])
-                predicted = self.predict(temp_filename)
-                cleanup()
-                err = self.diff_error(origin_labels, predicted)
-                if err <= max_predicted_diff_error and err >= min_predicted_diff_error:
+                if self._is_valid_synthetic(base_img, organic_labels, synthetic, min_predicted_diff_error, max_predicted_diff_error):
+                    synthetic_img = synthetic["image"]
+                    result_augs = [aug for aug in synthetic['replay']["transforms"]]
+                    applied_augs = filter(lambda aug: aug["applied"], result_augs)
+                    synthetic_name = image_namer(path.basename(origin_file), organic_labels, uid, applied_augs)
+                    uid += 1
                     break
             
             cur_original_index = (cur_original_index+1) % len(organic_img_filenames)
             if synthetic_img is None:
-                print("Warn: Could not generate valid synthetic from " + origin_file + ", skipping this round")
+                print("Warn: Could not generate valid synthetic from " + origin_file + ", skipping file this iteration")
             else:
                 synthetic_path = path.join(output_dir, synthetic_name)
                 cv2.imwrite(synthetic_path, synthetic_img)

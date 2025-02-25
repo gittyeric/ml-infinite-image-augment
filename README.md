@@ -212,29 +212,31 @@ Render the results of `searchRandomizationBoundries` to HTML for easy visualizat
 
 `html_dir`: (Optional) The directory to write output HTML and image files to, defaults to "analytics" relative directory.
 
-## synthesizeMore(organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html")
+## synthesizeMore(organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html")
 
 Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
 `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
-`organic_labels` List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.
+`organic_labels` (Optional) List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.  Required if my_predict is specified otherwise defaults to derived labels under the hood.
 
-`realism`: A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
+`realism`: (Optional) A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
 
-`count`: Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
+`count`: (Optional) Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
 
-`min_random_augmentations`: Randomly pick at least this many augmentations to apply.
+`min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
 
-`max_random_augmentations`: Randomly pick at most this many augmentations to apply.
+`max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.
 
-`min_predicted_diff_error`: The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
+`min_predicted_diff_error`: (Optional) The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
 
-`max_predicted_diff_error`: The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
+`max_predicted_diff_error`: (Optional) The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
 
-`output_dir`: The folder to save images and `__preview.html` to.
+`image_namer`: (Optional) function that returns the relative image name based on: (relative organic input image path, matching label, uid, applied Albumentation transform summary)
 
-`preview_html`: The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
+`output_dir`: (Optional) The folder to save images and `__preview.html` to.
+
+`preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
 
 ## evaluate(img_filenames, img_labels)
 
