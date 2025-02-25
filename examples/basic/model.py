@@ -8,7 +8,7 @@ class SiftSimilarity():
     def __init__(self, training_img_filenames: list[str]):
         # "Train" the BFMatcher by finding features of all input models
         imgs = [cv2.cvtColor(cv2.imread(x), cv2.COLOR_BGR2RGB) for x in training_img_filenames]
-        self.training_labels = [{"γ": 1, "out": i} for i in range(len(training_img_filenames))]
+        self.training_labels = [{"confidence": 1, "out": i} for i in range(len(training_img_filenames))]
         # Initiate SIFT detector
         self.sift = cv2.SIFT_create()
         # "Train" by converting all images to SIFT features for fast similarity comparison
@@ -48,15 +48,8 @@ class SiftSimilarity():
             if similarity > best_similarity:
                 best_similarity = similarity
                 best_index = i
-        return {"out": best_index, "γ": best_similarity}
+        return {"out": best_index, "confidence": best_similarity}
 
     def get_similarity(self, inliers, kps1, kps2):
         similarity = len(inliers) / min(len(kps1), len(kps2))
         return similarity
-
-    # TODO: Keep for example 2
-    def find_homography(self, inliers, kpsA, kpsB, reprojThresh):
-        s = np.float32([kpsA[i.queryIdx].pt for i in inliers]).reshape(-1, 1, 2)
-        d = np.float32([kpsB[i.trainIdx].pt for i in inliers]).reshape(-1, 1, 2)
-        (H, status) = cv2.findHomography(s, d, cv2.RANSAC, reprojThresh)
-        return (H, status)

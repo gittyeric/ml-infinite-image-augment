@@ -108,14 +108,14 @@ def err_if_not_strict_eq(original_labels, aug_labels):
     return 0 if str(original_labels) == str(aug_labels) else 1
 
 class ImageAugmenter:
-    def __init__(self, my_predict: lambda img_filename: str, diff_error: lambda orig, augmented: float=err_if_not_strict_eq, augmentations: list[str]=ALL_AUGMENTATIONS, label_format=None):
+    def __init__(self, my_predict: lambda img_filename: str, diff_error: lambda truth, predicted: float=err_if_not_strict_eq, augmentations: list[str]=ALL_AUGMENTATIONS, label_format=None):
         """
         The main class for grid searching over a training dataset with a model to determine random augmentation limits that the model can tolerate, and store the results.
         Returns a JSON blob representing the raw results of each augmentation feature, the same as the contents of `analyze.json`.
 
         `my_predict`: A function that takes an absolute image filename and runs inference against it, returning prediction labels (the labels' type only has meaning to you as long as it's string-ifiable)
 
-        `diff_error`: (Optional) Custom error/cost function in the range [0, 1.0] where 0 means both the original unaugmented image labels and augmented image output labels match perfectly or 1 meaning the labels match as little as possible.  Default behavior stringifies both raw and augment labels and assumes zero error only if strings are strictly equal, otherwise 1.
+        `diff_error`: (Optional) Custom error/cost function in the range [0, 1.0] where 0 means both the labels are a confident perfect match or error of 1 meaning the labels match as little as possible.  Default behavior stringifies both raw and augment labels and assumes zero error only if strings are strictly equal, otherwise 1.
 
         `augmentations`: (Optional) List of augmentation string types to apply for all downstream operations, defaults to all supported augmentations that are mostly 1-to-1 with those provided in the Albumentations library.  You can pick-and-choose each individually if you know your model won't be able to handle certain augmentation types or want to prototype with a smaller/faster feature set.  Available types are:
 
@@ -362,13 +362,13 @@ class ImageAugmenter:
         err_sum = 0.0
         for i in range(len(img_filenames)):
             file = img_filenames[i]
-            test, prediction = self._runTest(file, labels[i], pipeline)
+            test_transform, prediction = self._runTest(file, labels[i], pipeline)
             # Re-use original unchanged labels unless format is set
             # in which case use the calculated synthetic labels
             test_labels = labels[i]
             if self.label_format is not None:
                 # Remove the image and anything left over is labels
-                test_labels = test.copy()
+                test_labels = test_transform.copy()
                 del test_labels["image"]
             
             err = self.diff_error(test_labels, prediction)

@@ -2,35 +2,67 @@ from augment import ImageAugmenter
 from examples.basic.model import SiftSimilarity
 import cv2
 import os
+import math
 from os import path
 
-# A simple binary classifier that predicts 0 if the switch is off otherwise 1.
+# A COCO segment model that predicts a 4 keypoint segment outlining either an on or off
+# power switch class as well as either the 0 or 1 class for off or on respectively.
 # It also exposes the underlying confidence so we can tell future steps when 
 # too much randomization has lowered model's confidence too via a custom diff_error().
-training_img_dir = path.join("examples", "basic", "train", "img")
-training_set = [path.join(training_img_dir, rel) for rel in os.listdir(training_img_dir)]
+
+# Define the Albumentations schema of keypoint labels
+import albumentations as A
+label_format = { "keypoint_params": A.KeypointParams(format='xy', label_fields=['power'], remove_invisible=True) }
+
+training_set = [
+     path.join("examples", "keypoints", "train", "img", "off.png"), 
+     path.join("examples", "keypoints", "train", "img", "on.png")]
+# Class IDs for the images above, matching the label_format definition
+img_power_labels = [0, 1] # Off or on switch state
+# Hardcoded outline box pixel positions by looking at off.png and on.png 
+# for switch corner positions in photo shop.
+# Must be in Albumentations label_format as defined above
+training_labels = [{
+    (0, 0), (0, 0),
+    (0, 0), (0, 0)
+}, {
+    (0, 0), (0, 0),
+    (0, 0), (0, 0)
+}]
+
+# Model wiring for library usage
 model = SiftSimilarity(training_set)
 def on_off_predictor(img_file):
     img = cv2.imread(img_file)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return model.predict(img)
+    keypoints, power, confidence = model.predict(img)
+    return {
+        "keypoints": keypoints, "power": power, "confidence": confidence
+    }
 
 # Calculate the "difference error" between an organic label and the model
-# output from a synthetic spinoff image by comparing output values or
+# output from a synthetic spinoff image by comparing output boxes or
 # signaling error if the model's confidence drops due to synthetic mangling
-def confidence_aware_diff_error(original_label, augmented_label):
+def confidence_aware_diff_error(true_label, predicted_label):
+    if predicted_label["power"] != true_label["power"]:
+        return 1.0
     # Max error if confidence falls below threshold
-    if augmented_label["confidence"] < 0.1:
+    if predicted_label["confidence"] < 0.1:
         return 1
-    # Max error if outputs didn't match
-    if augmented_label["out"] != original_label["out"]:
-        return 1
+
+    confidence_penalty = 0
     # Output matches, so only penalize now if low model confidence
     # No error for high confidence matches or higher confidence than original
-    if augmented_label["confidence"] >= 0.5 or original_label["confidence"] < augmented_label["confidence"]:
-        return 0
-    # Diff of confidence % is also error %, 1-to-1
-    return original_label["confidence"] - augmented_label["confidence"]
+    if predicted_label["confidence"] < 0.5 and true_label["confidence"] > predicted_label["confidence"]:
+        confidence_penalty = true_label["confidence"] - predicted_label["confidence"]
+    point_dist_penalty = 0.0
+    for i in range(len(true_label["keypoints"])):
+        x1, y1 = true_label["keypoints"][i]
+        # TODO: could be None
+        x2, y2 = predicted_label["keypoints"][i]
+        point_dist_penalty = point_dist_penalty + math.sqrt()
+    # Diff of confidence % is also error %, 1-to-1 with distance-between-points ratio penalty
+    return 1 - confidence_penalty * 0.5 - (point_dist_penalty/len(predicted_label["keypoints"])) * 0.5
 
 # This end-to-end example shows how to plumb a model up, search for randomization boundries,
 # generate reports and finally generate some semi-realistic synthetic images and evaluate
