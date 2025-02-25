@@ -715,6 +715,8 @@ class ImageAugmenter:
         """
         Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
+        Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label)
+
         `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
         `organic_labels` (Optional) List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.  Required if my_predict is specified otherwise defaults to derived labels under the hood.
@@ -744,11 +746,13 @@ class ImageAugmenter:
         gen_count = count if count is not None else len(organic_img_filenames)
         gen_imgs = []
         gen_labels = []
+        gen_origins = []
+        gen_origin_labels = []
 
         cur_original_index = 0
         uid = len(os.listdir(output_dir))+1
         while (len(gen_imgs) < gen_count):
-            origin_file = organic_img_filenames[cur_original_index]
+            organic_file = organic_img_filenames[cur_original_index]
             organic_labels = labels[cur_original_index]
             label_args = {} if self.label_format is None else organic_labels
 
@@ -760,7 +764,7 @@ class ImageAugmenter:
             synthetic_labels = None
             synthetic_name = None
             for i in range(max_dice_rolls):
-                base_img = cv2.imread(origin_file)
+                base_img = cv2.imread(organic_file)
                 base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
                 pipeline = self._buildPipeline(realism, base_img.shape[1], base_img.shape[0], min_random_augmentations, max_random_augmentations)
                 synthetic = pipeline(image=base_img, **label_args)
@@ -769,7 +773,7 @@ class ImageAugmenter:
                     synthetic_img = synthetic["image"]
                     result_augs = [aug for aug in synthetic['replay']["transforms"]]
                     applied_augs = filter(lambda aug: aug["applied"], result_augs)
-                    synthetic_name = image_namer(path.basename(origin_file), organic_labels, uid, applied_augs)
+                    synthetic_name = image_namer(path.basename(organic_file), organic_labels, uid, applied_augs)
 
                     # Re-use original unchanged labels unless format is set
                     # in which case use the calculated synthetic labels
@@ -785,12 +789,14 @@ class ImageAugmenter:
             
             cur_original_index = (cur_original_index+1) % len(organic_img_filenames)
             if synthetic_img is None:
-                print("Warn: Could not generate valid synthetic from " + origin_file + ", skipping file this iteration")
+                print("Warn: Could not generate valid synthetic from " + organic_file + ", skipping file this iteration")
             else:
                 synthetic_path = path.join(output_dir, synthetic_name)
                 cv2.imwrite(synthetic_path, synthetic_img)
                 gen_imgs.append(synthetic_path)
                 gen_labels.append(synthetic_labels)
+                gen_origins.append(organic_file)
+                gen_origin_labels.append(organic_labels)
 
         if preview_html is not None:
             try:
@@ -816,7 +822,7 @@ class ImageAugmenter:
             with open(preview_path, "w") as preview_file:
                 preview_file.write("\n".join(html))
             print("Open " + preview_path + " to view all " + str(discovered_file_count) + " synthetic images")
-        return (gen_imgs, gen_labels)
+        return (gen_imgs, gen_labels, gen_origins, gen_origin_labels)
 
     def evaluate(self, img_filenames, img_labels):
         """

@@ -216,6 +216,8 @@ Render the results of `searchRandomizationBoundries` to HTML for easy visualizat
 
 Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
+Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label)
+
 `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
 `organic_labels` (Optional) List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.  Required if my_predict is specified otherwise defaults to derived labels under the hood.
