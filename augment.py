@@ -164,18 +164,11 @@ def new_default_predictor(training_imgs: list[str], training_labels: list):
 # output from a synthetic spinoff image by comparing output values or
 # signaling error if the model's confidence drops due to synthetic mangling
 def confidence_aware_diff_error(original_label, augmented_label):
-    # Max error if confidence falls below threshold
-    if augmented_label["γ"] < 0.1:
-        return 1
     # Max error if outputs didn't match
     if augmented_label["out"] != original_label["out"]:
         return 1
-    # Output matches, so only penalize now if low model confidence
-    # No error for high confidence matches or higher confidence than original
-    if augmented_label["γ"] >= 0.5 or original_label["γ"] < augmented_label["γ"]:
-        return 0
     # Diff of confidence % is also error %, 1-to-1
-    return original_label["γ"] - augmented_label["γ"]
+    return abs(original_label["γ"] - augmented_label["γ"])
 
 # Naively assume string equality is no error otherwise max error
 def err_if_not_strict_eq(original_labels, aug_labels):
