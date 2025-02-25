@@ -862,9 +862,6 @@ class ImageAugmenter:
             img = img_filenames[i]
             truth = img_labels[i]
             predicted = self.predict(img)
-            print(img)
-            print(truth)
-            print(predicted)
             err = self.diff_error(truth, predicted)
             err_sum += err
             if err > 0:
