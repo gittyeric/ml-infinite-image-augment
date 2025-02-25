@@ -58,6 +58,9 @@ In slightly more detail it:
 
 Simply instantiate an instance of ImageAugmenter and provide your `predict(image_filename) -> labels` model wrapper function.  This function is typically a shallow lambda wrapper around an ML or opencv `predict(x)` model function and also loads the input image in the model's preferred format.
 
+You can also skip providing a vision model here which will default to a reasonable basic model that detects when randomization bounds for your
+dataset is going too far, though it's generally much better to use your own model.  This may be useful if you want to create very generic-yet-reasonable synthetics from your datasets but independent of your model.
+
 ### (Optional) Custom label difference calculation
 
 You may also want to specify the 2nd constructor argument `diff_error(augmented_labels, original_labels)` which returns an error value from 0 to 1, with 0 signifying both labels are identical, or 1 meaning they are as mislabeled as possible.  Default behavior is to treat any string-ified difference between them as error=1 and string equality as error=0.  Typically for boolean or categorization it doesn't need modification, whereas a custom lambda for IoU area overlap percentage would be useful for bounding boxes, etc.  The labels' type only has meaning to you (unless you use the `label_format` option) so define it in whatever way lets you easily implement this function.

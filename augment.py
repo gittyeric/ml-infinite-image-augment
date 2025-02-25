@@ -103,12 +103,86 @@ MIN_NONNEGLIGABLE_ERR = 0.02
 # Diff errors > 90% are considered critical failure
 MIN_CRITICAL_ERR = 0.49
 
+class SiftSimilarity():
+
+    def __init__(self, training_img_filenames: list[str]):
+        # "Train" the BFMatcher by finding features of all input models
+        imgs = [cv2.cvtColor(cv2.imread(x), cv2.COLOR_BGR2RGB) for x in training_img_filenames]
+        self.training_labels = [{"γ": 1, "out": i} for i in range(len(training_img_filenames))]
+        # Initiate SIFT detector
+        self.sift = cv2.SIFT_create()
+        # "Train" by converting all images to SIFT features for fast similarity comparison
+        self.trained_features = [self.sift.detectAndCompute(img, None) for img in imgs]
+        # BFMatcher with default params
+        self.matcher = cv2.BFMatcher()
+
+    def sift_matches(self, baseline_features, img_features):
+        kps1,desc1 = baseline_features
+        kps2,desc2 = img_features
+        if len(kps2) < 2 or len(desc2) < 2:
+            return [], kps1, desc1, kps2, desc2
+        matches = self.matcher.match(desc1,desc2)
+        matches = sorted(matches,key= lambda x:x.distance)
+        return matches,kps1,desc1,kps2,desc2
+
+    def get_inliers_ratio(self, desc1,desc2,ratio):
+        matches=self.matcher.knnMatch(desc1,desc2,2)
+        inliers=[]
+        for m in matches:
+            if((m[0].distance/m[1].distance)<ratio):
+                inliers.append(m[0])
+        return inliers
+
+    def predict(self, img):
+        best_index = 0
+        best_similarity = 0
+        img_features = self.sift.detectAndCompute(img, None)
+        for i in range(len(self.trained_features)): 
+            baseline = self.trained_features[i]
+            allMatches,kps1,desc1,kps2,desc2 = self.sift_matches(baseline, img_features)
+            if len(allMatches) == 0:
+                continue
+            match=self.get_inliers_ratio(desc1,desc2,ratio=0.7)
+            similarity=self.get_similarity(match,kps1,kps2)
+
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_index = i
+        return {"out": best_index, "γ": best_similarity}
+
+    def get_similarity(self, inliers, kps1, kps2):
+        similarity = len(inliers) / min(len(kps1), len(kps2))
+        return similarity
+
+def new_default_predictor(training_imgs: list[str], training_labels: list):
+    training_img_dir = path.join("examples", "basic", "train", "img")
+    training_set = [path.join(training_img_dir, rel) for rel in os.listdir(training_img_dir)]
+    model = SiftSimilarity(training_set)
+    return lambda img_file: model.predict(cv2.cvtColor(cv2.imread(img_file), cv2.COLOR_BGR2RGB))
+
+# Calculate the "difference error" between an organic label and the model
+# output from a synthetic spinoff image by comparing output values or
+# signaling error if the model's confidence drops due to synthetic mangling
+def confidence_aware_diff_error(original_label, augmented_label):
+    # Max error if confidence falls below threshold
+    if augmented_label["γ"] < 0.1:
+        return 1
+    # Max error if outputs didn't match
+    if augmented_label["out"] != original_label["out"]:
+        return 1
+    # Output matches, so only penalize now if low model confidence
+    # No error for high confidence matches or higher confidence than original
+    if augmented_label["γ"] >= 0.5 or original_label["γ"] < augmented_label["γ"]:
+        return 0
+    # Diff of confidence % is also error %, 1-to-1
+    return original_label["γ"] - augmented_label["γ"]
+
 # Naively assume string equality is no error otherwise max error
 def err_if_not_strict_eq(original_labels, aug_labels):
     return 0 if str(original_labels) == str(aug_labels) else 1
 
 class ImageAugmenter:
-    def __init__(self, my_predict: lambda img_filename: str, diff_error: lambda orig, augmented: float=err_if_not_strict_eq, augmentations: list[str]=ALL_AUGMENTATIONS, label_format=None):
+    def __init__(self, my_predict: lambda img_filename: str = None, diff_error: lambda orig, augmented: float=err_if_not_strict_eq, augmentations: list[str]=ALL_AUGMENTATIONS, label_format=None):
         """
         The main class for grid searching over a training dataset with a model to determine random augmentation limits that the model can tolerate, and store the results.
         Returns a JSON blob representing the raw results of each augmentation feature, the same as the contents of `analyze.json`.
@@ -122,6 +196,7 @@ class ImageAugmenter:
         `label_format`: (Optional) Make dataset synthesis label-type aware so that for example bounding boxes are geometrically transformed to match the augmentations applied to the image.  This option is passed through as-is to the Albumentations library for it to figure out the label transformations, reference [their documentation](https://albumentations.ai/docs/getting_started/bounding_boxes_augmentation/) for supported label formats.  COCO bounding box example: 
         """
         self.my_predict = my_predict
+        self.predict = my_predict
         self.diff_error = diff_error
         self.augmentations = augmentations
         self.analytics = None
@@ -338,7 +413,7 @@ class ImageAugmenter:
     def _runTest(self, img_file, label, pipeline):
         synthetic = self._synthesize_one(img_file, label, pipeline)
         temp_filename, cleanup = self._write_temp(img_file, synthetic["image"])
-        predicted = self.my_predict(temp_filename)
+        predicted = self.predict(temp_filename)
         cleanup()
         return synthetic, predicted
 
@@ -508,7 +583,7 @@ class ImageAugmenter:
             raise Exception("weight must be positive")
         self.probs[augmentation_name] = weight
 
-    def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels, step_size_percent: float=0.05, analytics_cache="analytics.json"):
+    def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels: list = None, step_size_percent: float=0.05, analytics_cache="analytics.json"):
         """
         The main method that examines all training sample images passed in, usually everything you've got.  Because it takes a long time to run, it stores intermediate and final results to `analytics.json` which you can delete manually to find boundries from scratch (ex. you collected more training data and want to re-run). You should generally feed in as many training_img_filenames as possible to strengthen boundry search confidence and ensure future generated data isn't too unrealistic.  On the other hand you may want to limit to ~50000 maximally diverse training samples so analysis completes faster but only if time is a virtue for you.
 
@@ -516,12 +591,20 @@ class ImageAugmenter:
 
         `training_img_filenames`: List of image filenames that will later be passed to `my_predict`
 
-        `training_labels`: List of ground truth labels (type agnostic) that match 1-to-1 with `training_img_filenames`
+        `training_labels`: (Optional) List of ground truth labels (type agnostic) that match 1-to-1 with `training_img_filenames`.  Required if you defined my_predict, otherwise defaults to labels derived under the hood.
 
         `step_size_percent`: (Optional) How big of steps to take when finding an augmentation feature's limit, default of 0.05 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running searchRandomizationBoundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
 
         `analytics_cache`: The filename to use to store search cache calculations, defaults to analytics.json
         """
+
+        labels = training_labels
+        # If my_predict was not set, train a default SIFT predictor from this first seen training img batch
+        if self.my_predict is None:
+            labels = [{"out": i, "γ": 1.0} for i in range(len(training_img_filenames))]
+            self.predict = new_default_predictor(training_img_filenames, labels)
+            self.diff_error = confidence_aware_diff_error
+            print("Using default my_predict edge-based model for finding randomization boundries trained on " + str(len(training_img_filenames)) + " samples")
         print("Starting random boundry search using " + str(len(training_img_filenames)) + " samples")
         set_size = len(training_img_filenames)
         temp_analytics = {"steps": step_size_percent, "set_size": set_size, "augs": {}, "summaries": {}}
@@ -551,7 +634,7 @@ class ImageAugmenter:
             aug_histogram = augs[aug_name]
             cur_intensity = step_size_percent
             while (cur_intensity <= 1):
-                err_info = self._measureErrorAtTickForAug(cur_intensity, aug_name, training_img_filenames, training_labels)
+                err_info = self._measureErrorAtTickForAug(cur_intensity, aug_name, training_img_filenames, labels)
                 err_ratio = err_info["err"]
                 if first_err is None and err_info["first_err"]["img"] is not None:
                     first_err = err_info["first_err"]
@@ -603,30 +686,31 @@ class ImageAugmenter:
         shutil.copy(path.join("assets", "style.css"), path.join(html_dir, "style.css"))
         shutil.copy(path.join("assets", "chart.js"), path.join(html_dir, "chart.js"))
 
-    def synthesizeMore(self, organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html"):
+    def synthesizeMore(self, organic_img_filenames: list[str], organic_labels: list = None, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, output_dir="generated", preview_html="__preview.html"):
         """
         Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
         `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
-        `organic_labels` List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.
+        `organic_labels` (Optional) List of ground-truth (presumably real-world) training labels that map 1-to-1 with `organic_img_filenames`.  Required if my_predict is specified otherwise defaults to derived labels under the hood.
 
-        `realism`: A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
+        `realism`: (Optional) A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
 
-        `count`: Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
+        `count`: (Optional) Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
 
-        `min_random_augmentations`: Randomly pick at least this many augmentations to apply.
+        `min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
 
-        `max_random_augmentations`: Randomly pick at most this many augmentations to apply.
+        `max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.
 
-        `min_predicted_diff_error`: The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
+        `min_predicted_diff_error`: (Optional) The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
 
-        `max_predicted_diff_error`: The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
+        `max_predicted_diff_error`: (Optional) The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
 
-        `output_dir`: The folder to save images and `__preview.html` to.
+        `output_dir`: (Optional) The folder to save images and `__preview.html` to.
 
-        `preview_html`: The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
+        `preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
         """
+        labels = organic_labels if organic_labels is not None else [self.predict(img) for img in organic_img_filenames]
         if self.analytics is None:
             raise Exception("Cannot call before searchRandomizationBoundries")
         os.makedirs(output_dir, exist_ok=True)
@@ -639,7 +723,7 @@ class ImageAugmenter:
         uid = len(os.listdir(output_dir))+1
         while (len(gen_imgs) < gen_count):
             origin_file = organic_img_filenames[cur_original_index]
-            origin_labels = organic_labels[cur_original_index]
+            origin_labels = labels[cur_original_index]
             label_args = {} if self.label_format is None else origin_labels
 
             # For each input image roll the dice up to N times
@@ -680,7 +764,7 @@ class ImageAugmenter:
                     break
 
                 temp_filename, cleanup = self._write_temp(origin_file, synthetic["image"])
-                predicted = self.my_predict(temp_filename)
+                predicted = self.predict(temp_filename)
                 cleanup()
                 err = self.diff_error(origin_labels, predicted)
                 if err <= max_predicted_diff_error and err >= min_predicted_diff_error:
@@ -764,7 +848,7 @@ class ImageAugmenter:
         for i in range(len(img_filenames)):
             img = img_filenames[i]
             truth = img_labels[i]
-            predicted = self.my_predict(img)
+            predicted = self.predict(img)
             err = self.diff_error(truth, predicted)
             err_sum += err
             if err > 0:
