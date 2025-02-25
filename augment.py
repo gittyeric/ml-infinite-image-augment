@@ -276,7 +276,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(blur, blur), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_min=round(1 - intensity * 0.1), scale_max=round(1 - intensity * 0.1))
+            step = A.Downscale(p=1, scale_min=(1 - intensity * 0.1), scale_max=(1 - intensity * 0.1))
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomSizedCrop":
@@ -770,6 +770,16 @@ class ImageAugmenter:
                     result_augs = [aug for aug in synthetic['replay']["transforms"]]
                     applied_augs = filter(lambda aug: aug["applied"], result_augs)
                     synthetic_name = image_namer(path.basename(origin_file), organic_labels, uid, applied_augs)
+
+                    # Re-use original unchanged labels unless format is set
+                    # in which case use the calculated synthetic labels
+                    synthetic_labels = organic_labels
+                    if self.label_format is not None:
+                        # Remove the image+replay and anything left over is labels
+                        synthetic_labels = synthetic.copy()
+                        del synthetic_labels["image"]
+                        del synthetic_labels["replay"]
+                    
                     uid += 1
                     break
             
@@ -852,6 +862,9 @@ class ImageAugmenter:
             img = img_filenames[i]
             truth = img_labels[i]
             predicted = self.predict(img)
+            print(img)
+            print(truth)
+            print(predicted)
             err = self.diff_error(truth, predicted)
             err_sum += err
             if err > 0:
