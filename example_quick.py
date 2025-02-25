@@ -1,6 +1,4 @@
 from augment import ImageAugmenter
-from examples.basic.model import SiftSimilarity
-import cv2
 import os
 from os import path
 
@@ -14,7 +12,7 @@ def main():
     img_aug = ImageAugmenter()
     # Analyze training set for model weaknesses under different randomizations
     img_aug.searchRandomizationBoundries(training_set)
-    # Generate 50 "reasonable" random permutations of the on/off switch
-    synth_imgs, synth_labels = img_aug.synthesizeMore(training_set, count=50, output_dir="generated")
+    # Generate 50 "reasonable" random permutations of the on/off switch to "generated" directory
+    img_aug.synthesizeMore(training_set, count=50, output_dir="generated")
 
 main()
