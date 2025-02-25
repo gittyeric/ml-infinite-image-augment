@@ -154,10 +154,8 @@ class SiftSimilarity():
         similarity = len(inliers) / min(len(kps1), len(kps2))
         return similarity
 
-def new_default_predictor(training_imgs: list[str], training_labels: list):
-    training_img_dir = path.join("examples", "basic", "train", "img")
-    training_set = [path.join(training_img_dir, rel) for rel in os.listdir(training_img_dir)]
-    model = SiftSimilarity(training_set)
+def new_default_predictor(training_imgs: list[str]):
+    model = SiftSimilarity(training_imgs)
     return lambda img_file: model.predict(cv2.cvtColor(cv2.imread(img_file), cv2.COLOR_BGR2RGB))
 
 # Calculate the "difference error" between an organic label and the model
@@ -601,7 +599,7 @@ class ImageAugmenter:
         # If my_predict was not set, train a default SIFT predictor from this first seen training img batch
         if self.my_predict is None:
             labels = [{"out": i, "γ": 1.0} for i in range(len(training_img_filenames))]
-            self.predict = new_default_predictor(training_img_filenames, labels)
+            self.predict = new_default_predictor(training_img_filenames)
             self.diff_error = confidence_aware_diff_error
             print("Using default my_predict edge-based model for finding randomization boundries trained on " + str(len(training_img_filenames)) + " samples")
         set_size = len(training_img_filenames)
