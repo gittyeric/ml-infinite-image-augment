@@ -276,7 +276,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(blur, blur), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_min=(1 - intensity * 0.1), scale_max=(1 - intensity * 0.1))
+            step = A.Downscale(p=1, scale_range=(1 - intensity * 0.1, 1 - intensity * 0.1))
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomSizedCrop":
@@ -382,7 +382,7 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(min_blur, max_blur), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_min=(1 - max_bound * 0.1), scale_max=(1 - min_bound * 0.1)))
+                steps.append(A.Downscale(p=1, scale_range=(1 - min_bound * 0.1, 1 - max_bound * 0.1)))
             elif aug_name == "SafeRotate":
                 steps.append(A.SafeRotate(p=1, limit=((min_bound * 359.99) % 360, (max_bound * 359.99) % 360), border_mode=1))
             elif aug_name == "RandomSizedCrop":
