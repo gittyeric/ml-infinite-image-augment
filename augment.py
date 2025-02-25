@@ -276,7 +276,7 @@ class ImageAugmenter:
         elif aug_name == "MotionBlur":
             step = A.MotionBlur(p=1, blur_limit=(blur, blur), allow_shifted=True)
         elif aug_name == "Downscale":
-            step = A.Downscale(p=1, scale_range=(1 - intensity * 0.1, 1 - intensity * 0.1))
+            step = A.Downscale(p=1, scale_range=(1 - intensity * 0.3, 1 - intensity * 0.3))
         elif aug_name == "SafeRotate":
             step = A.SafeRotate(p=1, limit=(intensity * 359.99, intensity * 359.99), border_mode=1)
         elif aug_name == "RandomSizedCrop":
@@ -284,7 +284,7 @@ class ImageAugmenter:
             max_cutoff = 0.5 * min_dim
             step = A.RandomSizedCrop(size=(img_height, img_width), min_max_height=(math.floor(min_dim - intensity * max_cutoff), math.ceil(min_dim - intensity * max_cutoff)), w2h_ratio=1.0)
         elif aug_name == "PixelDropout":
-            step = A.PixelDropout(p=1, dropout_prob=intensity * 0.5, per_channel=1)
+            step = A.PixelDropout(p=1, dropout_prob=intensity * 0.2, per_channel=1)
         elif aug_name == "Superpixels":
             step = A.Superpixels(p=1, p_replace=(intensity * 0.2, intensity * 0.2), n_segments=(500, 1000))
         else:
@@ -382,7 +382,7 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(min_blur, max_blur), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_range=(1 - max_1 * 0.1, 1 - min_1 * 0.1)))
+                steps.append(A.Downscale(p=1, scale_range=(1 - max_1 * 0.3, 1 - min_1 * 0.3)))
             elif aug_name == "SafeRotate":
                 steps.append(A.SafeRotate(p=1, limit=((min_1 * 359.99) % 360, (max_1 * 359.99) % 360), border_mode=1))
             elif aug_name == "RandomSizedCrop":
@@ -390,7 +390,7 @@ class ImageAugmenter:
                 max_cutoff = 0.5 * min_dim
                 steps.append(A.RandomSizedCrop(size=(img_height, img_width), min_max_height=(math.floor(min_dim - max_1 * max_cutoff), math.ceil(min_dim - min_1 * max_cutoff)), w2h_ratio=1.0))
             elif aug_name == "PixelDropout":
-                steps.append(A.PixelDropout(p=1, dropout_prob=max_bound * 0.5, per_channel=1))
+                steps.append(A.PixelDropout(p=1, dropout_prob=max_bound * 0.2, per_channel=1))
             elif aug_name == "Superpixels":
                 steps.append(A.Superpixels(p=1, p_replace=(min_bound * 0.2, max_bound * 0.2), n_segments=(500, 1000)))
             else:
