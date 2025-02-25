@@ -405,7 +405,7 @@ class ImageAugmenter:
 
     def _write_temp(self, img_file: str, img):
          # Temp save locally
-        temp_filename = "temp_" + path.basename(img_file)
+        temp_filename = "temp_" + str(random.randint(0, 10000)) + path.basename(img_file)
         cv2.imwrite(temp_filename, img)
         return temp_filename, lambda: os.remove(temp_filename)
 
