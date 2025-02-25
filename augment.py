@@ -286,7 +286,7 @@ class ImageAugmenter:
         elif aug_name == "PixelDropout":
             step = A.PixelDropout(p=1, dropout_prob=intensity * 0.5, per_channel=1)
         elif aug_name == "Superpixels":
-            step = A.Superpixels(p=1, p_replace=(intensity * 0.5, intensity * 0.5), n_segments=(500, 1000))
+            step = A.Superpixels(p=1, p_replace=(intensity * 0.2, intensity * 0.2), n_segments=(500, 1000))
         else:
             raise Exception("Unknown augmentation type " + aug_name)
         return A.Compose([step], **label_opts)
@@ -382,9 +382,9 @@ class ImageAugmenter:
             elif aug_name == "MotionBlur":
                 steps.append(A.MotionBlur(p=1, blur_limit=(min_blur, max_blur), allow_shifted=True))
             elif aug_name == "Downscale":
-                steps.append(A.Downscale(p=1, scale_range=(1 - min_bound * 0.1, 1 - max_bound * 0.1)))
+                steps.append(A.Downscale(p=1, scale_range=(1 - max_1 * 0.1, 1 - min_1 * 0.1)))
             elif aug_name == "SafeRotate":
-                steps.append(A.SafeRotate(p=1, limit=((min_bound * 359.99) % 360, (max_bound * 359.99) % 360), border_mode=1))
+                steps.append(A.SafeRotate(p=1, limit=((min_1 * 359.99) % 360, (max_1 * 359.99) % 360), border_mode=1))
             elif aug_name == "RandomSizedCrop":
                 min_dim = min(img_width, img_height)
                 max_cutoff = 0.5 * min_dim
@@ -392,7 +392,7 @@ class ImageAugmenter:
             elif aug_name == "PixelDropout":
                 steps.append(A.PixelDropout(p=1, dropout_prob=max_bound * 0.5, per_channel=1))
             elif aug_name == "Superpixels":
-                steps.append(A.Superpixels(p=1, p_replace=(min_bound * 0.5, max_bound * 0.5), n_segments=(500, 1000)))
+                steps.append(A.Superpixels(p=1, p_replace=(min_bound * 0.2, max_bound * 0.2), n_segments=(500, 1000)))
             else:
                 raise Exception("Unknown augmentation type " + aug_name)
         return A.ReplayCompose(steps, **label_opts)
