@@ -580,7 +580,7 @@ class ImageAugmenter:
             raise Exception("weight must be positive")
         self.probs[augmentation_name] = weight
 
-    def searchRandomizationBoundries(self, training_img_filenames: list[str], training_labels: list = None, step_size_percent: float=0.05, analytics_cache="analytics.json"):
+    def search_randomization_boundries(self, training_img_filenames: list[str], training_labels: list = None, step_size_percent: float=0.05, analytics_cache="analytics.json"):
         """
         The main method that examines all training sample images passed in, usually everything you've got.  Because it takes a long time to run, it stores intermediate and final results to `analytics.json` which you can delete manually to find boundries from scratch (ex. you collected more training data and want to re-run). You should generally feed in as many training_img_filenames as possible to strengthen boundry search confidence and ensure future generated data isn't too unrealistic.  On the other hand you may want to limit to ~50000 maximally diverse training samples so analysis completes faster but only if time is a virtue for you.
 
@@ -590,7 +590,7 @@ class ImageAugmenter:
 
         `training_labels`: (Optional) List of ground truth labels (type agnostic) that match 1-to-1 with `training_img_filenames`.  Required if you defined my_predict, otherwise defaults to labels derived under the hood.
 
-        `step_size_percent`: (Optional) How big of steps to take when finding an augmentation feature's limit, default of 0.05 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running searchRandomizationBoundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
+        `step_size_percent`: (Optional) How big of steps to take when finding an augmentation feature's limit, default of 0.05 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running search_randomization_boundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
 
         `analytics_cache`: The filename to use to store search cache calculations, defaults to analytics.json
         """
@@ -651,14 +651,14 @@ class ImageAugmenter:
         self.analytics = temp_analytics
         return self.analytics
 
-    def renderBoundries(self, html_dir="analytics"):
+    def render_boundries(self, html_dir="analytics"):
         """
-        Render the results of `searchRandomizationBoundries` to HTML for easy visualization of how your model performs against varying degrees of augmention.
+        Render the results of `search_randomization_boundries` to HTML for easy visualization of how your model performs against varying degrees of augmention.
 
         `html_dir`: (Optional) The directory to write output HTML and image files to, defaults to "analytics" relative directory.
         """
         if self.analytics is None:
-            raise Exception("Cannot call before searchRandomizationBoundries")
+            raise Exception("Cannot call before search_randomization_boundries")
 
         script = []
         body = ["<h1>Model Resiliency Report</h1>"]
@@ -706,14 +706,31 @@ class ImageAugmenter:
                 return False
         return True
 
-    def synthesizeMore(self, organic_img_filenames: list[str], organic_labels: list = None, \
-                       realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, \
+    def _upsert_and_get_synthetic_log(self, synth_log_file: str, this_run):
+        gen_imgs, gen_labels, gen_origins, gen_origin_labels = this_run
+        prev_json = [[], [], [], []]
+        if path.exists(synth_log_file):
+            with open(synth_log_file, "r") as f:
+                prev_json = json.load(f)
+        prev_imgs, prev_labels, prev_origins, prev_origin_labels = prev_json
+
+        new_json = [
+            prev_imgs + gen_imgs, 
+            prev_labels + gen_labels, 
+            prev_origins + gen_origins, 
+            prev_origin_labels + gen_origin_labels]
+        with open(synth_log_file, "w") as f:
+            json.dump(new_json, f)
+        return new_json
+
+    def synthesize_more(self, organic_img_filenames: list[str], organic_labels: list = None, \
+                       realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=8, \
                        min_predicted_diff_error=0, max_predicted_diff_error=1, \
-                       image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html"):
+                       image_namer = verbose_synthetic_namer, log_file="", output_dir="generated", preview_html="__preview.html"):
         """
         Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
-        Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label)
+        Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label).  If `count_by`="in_dir" is set, the return values will reflect ALL synthesized images ever generated in output_dir.
 
         `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
@@ -722,6 +739,8 @@ class ImageAugmenter:
         `realism`: (Optional) A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
 
         `count`: (Optional) Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
+
+        `count_by`: (Optional) Whether the `count` parameter should match `in_dir` in-directory total image count (checkpoint-friendly) or `per_call` absolute generate count. Defaults to `per_call`
 
         `min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
 
@@ -733,22 +752,25 @@ class ImageAugmenter:
 
         `image_namer`: (Optional) function that returns the relative image name based on: (raw input relative image path, matching label, uid, applied Albumentation transform summary)
 
+        `log_file`: (Optional) The filename of the JSON logs of what has been synthesized, useful for synthetic generation checkpointing.  Defaults to the output directory name but with ".json" appended, set to None to avoid writing this file at all however `count_by`="in_dir" will be disabled.
+
         `output_dir`: (Optional) The folder to save images and `__preview.html` to.
 
         `preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
         """
         labels = organic_labels if organic_labels is not None else [self.predict(img) for img in organic_img_filenames]
         if self.analytics is None:
-            raise Exception("Cannot call before searchRandomizationBoundries")
+            raise Exception("Cannot call before search_randomization_boundries")
         os.makedirs(output_dir, exist_ok=True)
-        gen_count = count if count is not None else len(organic_img_filenames)
+        uid = len(os.listdir(output_dir))
+        unitless_count = count if count is not None else len(organic_img_filenames)
+        gen_count = unitless_count if count_by == "per_call" else max(0, unitless_count - uid)
         gen_imgs = []
         gen_labels = []
         gen_origins = []
         gen_origin_labels = []
 
         cur_original_index = 0
-        uid = len(os.listdir(output_dir))+1
         while (len(gen_imgs) < gen_count):
             organic_file = organic_img_filenames[cur_original_index]
             organic_labels = labels[cur_original_index]
@@ -820,12 +842,18 @@ class ImageAugmenter:
             with open(preview_path, "w") as preview_file:
                 preview_file.write("\n".join(html))
             print("Open " + preview_path + " to view all " + str(discovered_file_count) + " synthetic images")
-        return (gen_imgs, gen_labels, gen_origins, gen_origin_labels)
+        this_run = [gen_imgs, gen_labels, gen_origins, gen_origin_labels]
+        if log_file is not None:
+            log_file = log_file if log_file != "" else (output_dir + ".json")
+            all_logs = self._upsert_and_get_synthetic_log(log_file, this_run)
+            if count_by == "in_dir":
+                return all_logs
+        return this_run
 
     def evaluate(self, img_filenames, img_labels):
         """
         Run `my_predict` against all img_filenames which are 
-        typically generated by `synthesizeMore` as well as the 
+        typically generated by `synthesize_more` as well as the 
         matching synthetic truth labels and compare to the model's 
         output labels ran against img_filenames.  This is 
         convenient to test synthetic data against different 

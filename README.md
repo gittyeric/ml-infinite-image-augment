@@ -77,27 +77,27 @@ This step provides clear visibility into what intensity per augmentation degrade
 from augment import ImageAugmenter
 
 img_aug = ImageAugmenter(on_off_predictor, diff_error=confidence_aware_diff_error)
-img_aug.searchRandomizationBoundries(training_img_filenames, training_labels)
+img_aug.search_randomization_boundries(training_img_filenames, training_labels)
 ```
 
-searchRandomizationBoundries offers plenty of customization (see API section) to focus on only the augmentations your model needs to be resilient to as well as tuning for accuracy vs search speed.  `analyze.json` is used as a resume-cache so delete this file if you ever want to `searchRandomizationBoundries` from scratch.
+search_randomization_boundries offers plenty of customization (see API section) to focus on only the augmentations your model needs to be resilient to as well as tuning for accuracy vs search speed.  `analyze.json` is used as a resume-cache so delete this file if you ever want to `search_randomization_boundries` from scratch.
 
 ## Step 2b: (Optional) Visualize Model Resiliency
 
 With the analysis.json file derived you can now render and open [analytics/index.html](analytics/index.html) to view how your model reacts to every augmentation and what intensities start to give your model grief:
 
 ```
-img_aug.renderBoundries(html_dir="analytics")
+img_aug.render_boundries(html_dir="analytics")
 ```
 
 ## Step 3: Generate Infinite Datasets!
 
-After searchRandomizationBoundries completes, you have everything you need to call synthesizeMore in a loop forever! (or run out of disk space):
+After search_randomization_boundries completes, you have everything you need to call synthesize_more in a loop forever! (or run out of disk space):
 
 ```
 while (True):
     synthetic_img_filenames, synthetic_labels = 
-        img_aug.synthesizeMore(training_img_filenames, training_labels)
+        img_aug.synthesize_more(training_img_filenames, training_labels)
 ```
 
 Your training_img_filenames will be traversed in a loop until `count=len(training_img_filenames)` synthetic images are cloned to disk, with each synthetic clone having between `min_random_augmentations=3` and `max_random_augmentations=8` randomizations applied but only up to intensities seen that individually did not affect model output substantially.  If you want to risk exposing your model to training on more extreme datasets such as very bright etc., you can control generating sensible (`realism=0.5`) random augmentation ranges between when small model differences start to show all the way up to values right at the edge (`realism=0`) of where the model starts to fail 100% of the time (ex. _exactly_ too bright for the model). `realism < 0` should be used sparingly as it may worsen realistic cases but _could_ force your model to generalize better.  `realism` near 1 creates very little variation and is best avoided unless you really need very strict realism.  `realism` can also be set on a per-augmentation feature basis via `set_augmentation_realism` which takes top preference.
@@ -184,7 +184,7 @@ Returns a JSON blob representing the raw results of each augmentation feature, t
 
 `Superpixels`: Randomly transplant patches of image elsewhere
 
-### searchRandomizationBoundries(training_img_filenames: list[str], training_labels, step_size_percent: float=0.05)
+### search_randomization_boundries(training_img_filenames: list[str], training_labels, step_size_percent: float=0.05)
 
 The main method that examines all training sample images passed in, usually everything you've got.  Because it takes a long time to run, it stores intermediate and final results to `analysis.json` which you can delete manually to find boundries from scratch (ex. you collected more training data and want to re-run). You should generally feed in as many training_img_filenames as possible to strengthen boundry search confidence and ensure future generated data isn't too unrealistic.  On the other hand you may want to limit to ~50000 maximally diverse training samples so analysis completes faster but only if time is a virtue for you.
 
@@ -194,7 +194,7 @@ All other class methods assume you've run this and already computed boundry stat
 
 `training_labels`: List of ground truth labels (type agnostic) that match 1-to-1 with `training_img_filenames`
 
-`step_size_percent`: How big of steps to take when finding an augmentation feature's limit, default of 5 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running searchRandomizationBoundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
+`step_size_percent`: How big of steps to take when finding an augmentation feature's limit, default of 5 means each trial will increase augmentation intensity by 5% until `my_predict` starts to differ significantly in its output.  Lower values take longer for the 1-time cost of running search_randomization_boundries but will yield more accurate augmentation limit boundries for data generation and graphing, so going down to ~1% step_size granularity can sometimes be worth the investment.
 
 `analytics_cache`: The filename to use to store search cache calculations, defaults to analytics.json
 
@@ -206,17 +206,17 @@ Override global realism and set for just this augmentation_name. Values close to
 
 Sets the probability of an augmentation being applied.  weight is relative to other augmentations which are typically 1 (uniform distribution), so a value of 2 would double the odds of selection relative to others while 0.5 cuts in half.
 
-## renderBoundries(html_dir="analytics")
+## render_boundries(html_dir="analytics")
 
-Render the results of `searchRandomizationBoundries` to HTML for easy visualization of how your model performs against varying degrees of augmention.
+Render the results of `search_randomization_boundries` to HTML for easy visualization of how your model performs against varying degrees of augmention.
 
 `html_dir`: (Optional) The directory to write output HTML and image files to, defaults to "analytics" relative directory.
 
-## synthesizeMore(organic_img_filenames, organic_labels, realism=0.5, count=None, min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html")
+## synthesize_more(organic_img_filenames, organic_labels, realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html")
 
 Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
-Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label)
+Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label).  If `count_by`="in_dir" is set, the return values will reflect ALL synthesized images ever generated in output_dir.
 
 `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
@@ -225,6 +225,8 @@ Returns a quad-tuple of (generated image filenames, generated image labels, gene
 `realism`: (Optional) A float between [-∞, 1] to control generated images' realism based on what your model could handle during boundry search.  A value of 1 means to steer clear of more intense random values that your model has trouble with while a value of zero pushes to the very limit of what your model can tolerate.  Negative values push your current model well into failure territory but may be useful to generate synthetic training data for generalization of your model after retraining.
 
 `count`: (Optional) Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
+
+`count_by`: (Optional) Whether the `count` parameter should match `in_dir` in-directory total image count or `per_call` absolute generate count. Defaults to `per_call`.
 
 `min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
 
@@ -242,7 +244,7 @@ Returns a quad-tuple of (generated image filenames, generated image labels, gene
 
 ## evaluate(img_filenames, img_labels)
 
-Run `my_predict` against all img_filenames which are typically generated by `synthesizeMore` as well as the matching synthetic truth labels and compare to the model's output labels ran against img_filenames.  This is convenient to test synthetic data against different versions of your model, presumably your model before and after training on the synthetic dataset.  Can also be used to compare real-world vs synthetic model performance.  If your new model performs poorly on a synthetic batch it was trained on, it suggests your `realism` hyperparameter may be too high and you're randomizing training data to the point of mangling it for even the best model (ex. so much extra brightness the image is pure white).  If your model performs extremely well on a synthetic batch it was trained on while retaining real-world accuracy, consider increasing `realism` to handle more real-world edge cases by training on even stranger synthetic samples.  Also consider setting `max_predicted_diff_error` to < 1 to task your model with filtering out overly unrealistic synthetic samples.
+Run `my_predict` against all img_filenames which are typically generated by `synthesize_more` as well as the matching synthetic truth labels and compare to the model's output labels ran against img_filenames.  This is convenient to test synthetic data against different versions of your model, presumably your model before and after training on the synthetic dataset.  Can also be used to compare real-world vs synthetic model performance.  If your new model performs poorly on a synthetic batch it was trained on, it suggests your `realism` hyperparameter may be too high and you're randomizing training data to the point of mangling it for even the best model (ex. so much extra brightness the image is pure white).  If your model performs extremely well on a synthetic batch it was trained on while retaining real-world accuracy, consider increasing `realism` to handle more real-world edge cases by training on even stranger synthetic samples.  Also consider setting `max_predicted_diff_error` to < 1 to task your model with filtering out overly unrealistic synthetic samples.
 
 `img_filenames`: list of string filenames to use in evaluation.
 
