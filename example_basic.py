@@ -42,12 +42,12 @@ def main():
     # Render a summary of how well the model behaved
     img_aug.render_boundries(html_dir=path.join("examples", "basic", "analysis"))
     # Control realism on a per-feature basis
-    img_aug.set_augmentation_realism("SafeRotate", 0) # Unreal + max rotation since model is rotation-invariant
-    img_aug.set_augmentation_weight("SafeRotate", 3) # 3x more likely to rotate than default
-    img_aug.set_augmentation_realism("RandomSizedCrop", 0.5) # Only do small crop border cuts, but...
+    img_aug.set_augmentation_intensity("SafeRotate", min=0, max=1) # Unreal + max rotation since model is rotation-invariant
+    img_aug.set_augmentation_weight("SafeRotate", 3) # 3x more likely to rotate than usual
+    img_aug.set_augmentation_intensity("RandomSizedCrop", multiplier=0.1) # Only do up to 10% of "safe" crop border cut
     img_aug.set_augmentation_weight("RandomSizedCrop", 2) # 2x more likely to crop at all
     # Generate some images based on discovered randomization boundries and training data
-    synth_imgs, synth_labels = img_aug.synthesize_more(training_set, model.training_labels, count=50, realism=0.5)
+    synth_imgs, synth_labels, _, _ = img_aug.synthesize_more(training_set, model.training_labels, count=50, realism=0.5)
     # Use synthesized data as an improvised infinite validation set to test generality
     # and debug where your previously untested model tends to fail
     validation = img_aug.evaluate(synth_imgs, synth_labels)

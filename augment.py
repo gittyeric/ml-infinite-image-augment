@@ -198,7 +198,7 @@ class ImageAugmenter:
         self.augmentations = augmentations
         self.analytics = None
         self.label_format = label_format
-        self.realism_overrides = {}
+        self.intensity_overrides = {}
         # Copy the aug prob distribution so user can overwrite per-augmentation
         self.probs = AUG_PROB_DIST.copy()
 
@@ -295,7 +295,6 @@ class ImageAugmenter:
         augs = self._pick_augs(min_random_augmentations, max_random_augmentations)
 
         for aug_name in augs:
-            realism_to_use = realism if aug_name not in self.realism_overrides else self.realism_overrides[aug_name]
             # Compute max bound based on past err and realism as [0, 1] min/max_bound scalars
             histo = self.analytics["augs"][aug_name]
             first_nonnegligale_intensity = 1.0
@@ -321,16 +320,28 @@ class ImageAugmenter:
             # Min bound is set by the first intensity that caused a non-trivial average error,
             # also shift left by half a step to conservatively assume the non-trivial error
             # started somewhere between intensity test X-axis ticks, scale by realism factor
-            min_bound = (1 - realism_to_use) * max(first_nonnegligale_intensity - half_step, 0)
+            min_bound = (1 - realism) * max(first_nonnegligale_intensity - half_step, 0)
             # Max bound is set by the last intensity that didn't cause a non-critical average error,
             # also shift left by half a step to conservatively assume the critical error
             # started somewhere between intensity test X-axis ticks, scale by realism factor
-            max_bound = (1 - realism_to_use) * max(last_noncritical_intensity - half_step, 0)
+            max_bound = (1 - realism) * max(last_noncritical_intensity - half_step, 0)
 
             # If no real successes for this aug, set to very tiny bounds
             if max_bound <= self.analytics["steps"]:
                 min_bound = 0.0001
                 max_bound = half_step
+
+            # Potentially override min/max bounds with user override
+            if aug_name in self.intensity_overrides:
+                override = self.intensity_overrides[aug_name]
+                if override["multiplier"] != 1.0:
+                    min_bound *= override["multiplier"]
+                    max_bound *= override["multiplier"]
+                if override["min"] is not None:
+                    min_bound = override["min"]
+                if override["max"] is not None:
+                    if not override["only_shrink_max"] or override["max"] < max_bound:
+                        max_bound = override["max"]
 
             max_255 = min(255, max_bound * 255)
             min_255 = min(255, min_bound * 255)
@@ -562,23 +573,52 @@ class ImageAugmenter:
             return True
         return False
 
-    def set_augmentation_realism(self, augmentation_name: str, realism: float):
+    def set_augmentation_intensity(self, augmentations: str | list[str] = ALL_AUGMENTATIONS, multiplier: float = 1.0, min: int = None, max: int = None, only_shrink_max: bool = False):
         """
-        Override global realism and set for just this augmentation_name. Values close to
-        one add less randomiation, 0 edges to the limit of what your model currently handles,
-        and negative values are wildly random to potentially aid in generalization.
-        """
-        self.realism_overrides[augmentation_name] = realism
+        Sets the min/max [0, 1] scalar intensities of an augmentation(s) being applied.  You can view the webpage output from calling
+        `render_boundries` to easily view what intensities affect your model and how and intelligently set this.
 
-    def set_augmentation_weight(self, augmentation_name: str, weight):
+        `multiplier`: (Optional) Use a single scalar to boost or penalize the default min/max learned intensity boundries. You should prefer
+        this over setting min/max since it's a single value and it still leverages the good intensity ranges found for your model+dataset.
+
+        `min`: (Optional) The minimum amount of effect intensity to apply for `augmentations` when generating synthetics.
+        Default: The intensity at which my_predict begins to show >= 2% label differences / error.
+
+        `max`: (Optional) The maximum amount of effect intensity to apply for `augmentations` when generating synthetics.
+        Default: The intensity at which my_predict begins to show >= 50% label differences / error.
+
+        `augmentations`: (Optional) A list or single string of augmentation name(s) to apply the min and/or max intensity to.
+        Default: ALL_AUGMENTATIONS
+
+        `only_shrink_max`: (Optional) Whether this call should only shrink the range of possible intensity rather than accidently expand it.
+        Use this if you want to make sure you don't accidently set a higher intensity than what your model can actually handle.
+        Default: False, affected augmentations will strictly use your min/max values if set.
+        """
+        if min is not None and (min < 0 or min >= 1):
+            raise Exception("set_augmentation_intensity min must be >= 0 and < 1")
+        if max is not None and (max > 1 or max <= 0):
+            raise Exception("set_augmentation_intensity max must be > 0 and <= 1")
+        if multiplier is not None and multiplier <= 0:
+            raise Exception("set_augmentation_intensity multiplier must be > 0")
+        augs = [augmentations] if isinstance(augmentations, str) else augmentations
+        for aug in augs:
+            self.intensity_overrides[aug] = {"min": min, "max": max, "multiplier": multiplier, "only_shrink_max": only_shrink_max}
+
+    def set_augmentation_weight(self, augmentations: str | list[str], weight: int):
         """
         Sets the probability of an augmentation being applied.  weight is relative
         to other augmentations which are typically 1 (uniform distribution), so a value 
         of 2 would double the odds of selection relative to others while 0.5 cuts in half
+
+        `augmentations` Single str or list of str of augmentation names to apply this weight to.
+
+        `weight`: How often this augmentation should be applied [0, inf], value of 1 is uniform, 2 would double the selection likelihood etc.
         """
         if weight <= 0:
             raise Exception("weight must be positive")
-        self.probs[augmentation_name] = weight
+        augs = augmentations if hasattr(augmentations, "__len__") else [augmentations]
+        for aug in augs:
+            self.probs[aug] = weight
 
     def search_randomization_boundries(self, training_img_filenames: list[str], training_labels: list = None, step_size_percent: float=0.05, analytics_cache="analytics.json"):
         """
@@ -706,7 +746,7 @@ class ImageAugmenter:
                 return False
         return True
 
-    def _upsert_and_get_synthetic_log(self, synth_log_file: str, this_run):
+    def _upsert_and_get_synthetic_log(self, synth_log_file: str, this_run: list[list]):
         gen_imgs, gen_labels, gen_origins, gen_origin_labels = this_run
         prev_json = [[], [], [], []]
         if path.exists(synth_log_file):
@@ -724,7 +764,7 @@ class ImageAugmenter:
         return new_json
 
     def synthesize_more(self, organic_img_filenames: list[str], organic_labels: list = None, \
-                       realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=8, \
+                       realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=6, \
                        min_predicted_diff_error=0, max_predicted_diff_error=1, \
                        image_namer = verbose_synthetic_namer, log_file="", output_dir="generated", preview_html="__preview.html"):
         """
@@ -742,9 +782,9 @@ class ImageAugmenter:
 
         `count_by`: (Optional) Whether the `count` parameter should match `in_dir` in-directory total image count (checkpoint-friendly) or `per_call` absolute generate count. Defaults to `per_call`
 
-        `min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
+        `min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.  Default: 3
 
-        `max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.
+        `max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.  Default: 6
 
         `min_predicted_diff_error`: (Optional) The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
 
@@ -758,7 +798,6 @@ class ImageAugmenter:
 
         `preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
         """
-        labels = organic_labels if organic_labels is not None else [self.predict(img) for img in organic_img_filenames]
         if self.analytics is None:
             raise Exception("Cannot call before search_randomization_boundries")
         os.makedirs(output_dir, exist_ok=True)
@@ -769,40 +808,44 @@ class ImageAugmenter:
         gen_labels = []
         gen_origins = []
         gen_origin_labels = []
+        # Lazy eval labels if using default my_predict model
+        derived_label_cache = {}
 
         cur_original_index = 0
         while (len(gen_imgs) < gen_count):
             organic_file = organic_img_filenames[cur_original_index]
-            organic_labels = labels[cur_original_index]
-            label_args = {} if self.label_format is None else organic_labels
+            organic_label = organic_labels[cur_original_index] if organic_labels is not None else \
+                (derived_label_cache[organic_file] if organic_file in derived_label_cache else self.predict(organic_file))
+            derived_label_cache[organic_file] = organic_label
+            label_args = {} if self.label_format is None else organic_label
 
             # For each input image roll the dice up to N times
             # to find an acceptable augmented image before warning
             # and moving on to the next input image
             max_dice_rolls = 100
             synthetic_img = None
-            synthetic_labels = None
+            synthetic_label = None
             synthetic_name = None
-            for i in range(max_dice_rolls):
+            for __ in range(max_dice_rolls):
                 base_img = cv2.imread(organic_file)
                 base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
                 pipeline = self._buildPipeline(realism, base_img.shape[1], base_img.shape[0], min_random_augmentations, max_random_augmentations)
                 synthetic = pipeline(image=base_img, **label_args)
 
-                if self._is_valid_synthetic(base_img, organic_labels, synthetic, min_predicted_diff_error, max_predicted_diff_error):
+                if self._is_valid_synthetic(base_img, organic_label, synthetic, min_predicted_diff_error, max_predicted_diff_error):
                     synthetic_img = synthetic["image"]
                     result_augs = [aug for aug in synthetic['replay']["transforms"]]
                     applied_augs = filter(lambda aug: aug["applied"], result_augs)
-                    synthetic_name = image_namer(path.basename(organic_file), organic_labels, uid, applied_augs)
+                    synthetic_name = image_namer(path.basename(organic_file), organic_label, uid, applied_augs)
 
                     # Re-use original unchanged labels unless format is set
                     # in which case use the calculated synthetic labels
-                    synthetic_labels = organic_labels
+                    synthetic_label = organic_label
                     if self.label_format is not None:
                         # Remove the image+replay and anything left over is labels
-                        synthetic_labels = synthetic.copy()
-                        del synthetic_labels["image"]
-                        del synthetic_labels["replay"]
+                        synthetic_label = synthetic.copy()
+                        del synthetic_label["image"]
+                        del synthetic_label["replay"]
                     
                     uid += 1
                     break
@@ -814,9 +857,9 @@ class ImageAugmenter:
                 synthetic_path = path.join(output_dir, synthetic_name)
                 cv2.imwrite(synthetic_path, synthetic_img)
                 gen_imgs.append(synthetic_path)
-                gen_labels.append(synthetic_labels)
+                gen_labels.append(synthetic_label)
                 gen_origins.append(organic_file)
-                gen_origin_labels.append(organic_labels)
+                gen_origin_labels.append(organic_label)
 
         if preview_html is not None:
             try:

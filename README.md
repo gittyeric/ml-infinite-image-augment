@@ -100,7 +100,7 @@ while (True):
         img_aug.synthesize_more(training_img_filenames, training_labels)
 ```
 
-Your training_img_filenames will be traversed in a loop until `count=len(training_img_filenames)` synthetic images are cloned to disk, with each synthetic clone having between `min_random_augmentations=3` and `max_random_augmentations=8` randomizations applied but only up to intensities seen that individually did not affect model output substantially.  If you want to risk exposing your model to training on more extreme datasets such as very bright etc., you can control generating sensible (`realism=0.5`) random augmentation ranges between when small model differences start to show all the way up to values right at the edge (`realism=0`) of where the model starts to fail 100% of the time (ex. _exactly_ too bright for the model). `realism < 0` should be used sparingly as it may worsen realistic cases but _could_ force your model to generalize better.  `realism` near 1 creates very little variation and is best avoided unless you really need very strict realism.  `realism` can also be set on a per-augmentation feature basis via `set_augmentation_realism` which takes top preference.
+Your training_img_filenames will be traversed in a loop until `count=len(training_img_filenames)` synthetic images are cloned to disk, with each synthetic clone having between `min_random_augmentations=3` and `max_random_augmentations=8` randomizations applied but only up to intensities seen that individually did not affect model output substantially.  If you want to risk exposing your model to training on more extreme datasets such as very bright etc., you can control generating sensible (`realism=0.5`) random augmentation ranges between when small model differences start to show all the way up to values right at the edge (`realism=0`) of where the model starts to fail 100% of the time (ex. _exactly_ too bright for the model). `realism < 0` should be used sparingly as it may worsen realistic cases but _could_ force your model to generalize better.  `realism` near 1 creates very little variation and is best avoided unless you really need very strict realism.  `realism` can also be overruled on a per-augmentation feature basis via `set_augmentation_intensity` letting you set more narrow unrealistic bounds manually where needed.
 
 ## Step 4: (Optional) Evaluate Model against freshly generated data
 
@@ -198,13 +198,36 @@ All other class methods assume you've run this and already computed boundry stat
 
 `analytics_cache`: The filename to use to store search cache calculations, defaults to analytics.json
 
-## set_augmentation_realism(augmentation_name: str, realism: float)
+## set_augmentation_intensity(self, augmentations: str | list[str] = ALL_AUGMENTATIONS, multiplier: float = 1.0, min: int = None, max: int = None, only_shrink_max: bool = False):
 
-Override global realism and set for just this augmentation_name. Values close to one add less randomiation, 0 edges to the limit of what your model currently handles, and negative values are wildly random to potentially aid in generalization.
+Sets the min/max [0, 1] scalar intensities of an augmentation(s) being applied.  You can view the webpage output from calling
+`render_boundries` to easily view what intensities affect your model and how and intelligently set this.
 
-## set_augmentation_weight(augmentation_name: str, weight)
+`multiplier`: (Optional) Use a single scalar to boost or penalize the default min/max learned intensity boundries. You should prefer
+this over setting min/max since it's a single value and it still leverages the good intensity ranges found for your model+dataset.
 
-Sets the probability of an augmentation being applied.  weight is relative to other augmentations which are typically 1 (uniform distribution), so a value of 2 would double the odds of selection relative to others while 0.5 cuts in half.
+`min`: (Optional) The minimum amount of effect intensity to apply for `augmentations` when generating synthetics.
+Default: The intensity at which my_predict begins to show >= 2% label differences / error.
+
+`max`: (Optional) The maximum amount of effect intensity to apply for `augmentations` when generating synthetics.
+Default: The intensity at which my_predict begins to show >= 50% label differences / error.
+
+`augmentations`: (Optional) A list or single string of augmentation name(s) to apply the min and/or max intensity to.
+Default: ALL_AUGMENTATIONS
+
+`only_shrink_max`: (Optional) Whether this call should only shrink the range of possible intensity rather than accidently expand it.
+Use this if you want to make sure you don't accidently set a higher intensity than what your model can actually handle.
+Default: False, affected augmentations will strictly use your min/max values if set.
+
+## set_augmentation_weight(augmentation_name: str | list[str], weight)
+
+Sets the probability of an augmentation being applied.  weight is relative
+to other augmentations which are typically 1 (uniform distribution), so a value 
+of 2 would double the odds of selection relative to others while 0.5 cuts in half
+
+`augmentations` Single str or list of str of augmentation names to apply this weight to.
+
+`weight`: How often this augmentation should be applied [0, inf], value of 1 is uniform, 2 would double the selection likelihood etc.
 
 ## render_boundries(html_dir="analytics")
 
@@ -212,11 +235,11 @@ Render the results of `search_randomization_boundries` to HTML for easy visualiz
 
 `html_dir`: (Optional) The directory to write output HTML and image files to, defaults to "analytics" relative directory.
 
-## synthesize_more(organic_img_filenames, organic_labels, realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=8, min_predicted_diff_error=0, max_predicted_diff_error=1, image_namer = verbose_synthetic_namer, output_dir="generated", preview_html="__preview.html")
+## synthesize_more(self, organic_img_filenames: list[str], organic_labels: list = None, realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=6, min_predicted_diff_error=0, max_predicted_diff_error=1, image_namer = verbose_synthetic_namer, log_file="", output_dir="generated", preview_html="__preview.html")
 
 Generate synthetic training/validation samples based on some input set and only use as much randomization as `realism` demands.  Optionally generates a `__preview.html` file that previews all images in the generated output folder.
 
-Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label).  If `count_by`="in_dir" is set, the return values will reflect ALL synthesized images ever generated in output_dir.
+Returns a quad-tuple of (generated image filenames, generated image labels, generated image's organic source file, generated image's organic label).  If `count_by`="in_dir" is set, the return values will reflect ALL synthesized images ever generated in output_dir, useful for checkpointing.
 
 `organic_img_filenames`: Original (presumably real-world) training images from which to synthesize new datasets, each image will be used in equal quantity.
 
@@ -226,17 +249,19 @@ Returns a quad-tuple of (generated image filenames, generated image labels, gene
 
 `count`: (Optional) Number of synthetic images to generate, default of None signifies to use len(training_img_filenames)
 
-`count_by`: (Optional) Whether the `count` parameter should match `in_dir` in-directory total image count or `per_call` absolute generate count. Defaults to `per_call`.
+`count_by`: (Optional) Whether the `count` parameter should match `in_dir` in-directory total image count (checkpoint-friendly) or `per_call` absolute generate count. Defaults to `per_call`
 
-`min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.
+`min_random_augmentations`: (Optional) Randomly pick at least this many augmentations to apply.  Default: 3
 
-`max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.
+`max_random_augmentations`: (Optional) Randomly pick at most this many augmentations to apply.  Default: 6
 
 `min_predicted_diff_error`: (Optional) The minimum diff error between `my_predict` running on original image vs augmented image. Set this if you only want to keep generated images that your model fails at to force it to focus on the outliers it misses.  Defaults to zero so all synthesized data is kept.
 
 `max_predicted_diff_error`: (Optional) The maximum diff error between `my_predict` running on original image vs augmented image.  Set this if you want to filter out images that _may_ differ too wildly from the original image.  Useful for auto-removing images that end up for example too bright for _any_ model to process; such images can potentially weaken the synthetic dataset for training purposes or make validation on synthetics appear artifically poor.  Defaults to 1 so all synthesized data is kept.
 
-`image_namer`: (Optional) function that returns the relative image name based on: (relative organic input image path, matching label, uid, applied Albumentation transform summary)
+`image_namer`: (Optional) function that returns the relative image name based on: (raw input relative image path, matching label, uid, applied Albumentation transform summary)
+
+`log_file`: (Optional) The filename of the JSON logs of what has been synthesized, useful for synthetic generation checkpointing.  Defaults to the output directory name but with ".json" appended, set to None to avoid writing this file at all however `count_by`="in_dir" will be disabled.
 
 `output_dir`: (Optional) The folder to save images and `__preview.html` to.
 
