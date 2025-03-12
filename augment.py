@@ -763,6 +763,47 @@ class ImageAugmenter:
             json.dump(new_json, f)
         return new_json
 
+    def _raw_summary_to_human(self, raw_summary):
+        count = len(raw_summary[0])
+        return {
+                "count": count,
+                "generated": [{
+                    "synth_filename": raw_summary[0][e],
+                    "synth_label": raw_summary[1][e],
+                    "origin_filename": raw_summary[2][e],
+                    "origin_label": raw_summary[3][e]
+                } for e in range(count)]
+            }
+
+    def get_synthesized_summary(self, log_file="", output_dir="generated"):
+        """
+        Get a summary of all images generated so far, useful for conditionally
+        calling downstream methods only if needed or iterating over all historically
+        generated image locations and label metadata.  
+
+        `log_file`: (Optional) The filename of the JSON logs of what has been synthesized, useful for synthetic generation checkpointing.  Defaults to the output directory name but with ".json" appended, set to None to avoid writing this file at all however `count_by`="in_dir" will be disabled.
+
+        `output_dir`: (Optional) The folder to save images and `__preview.html` to.
+        
+        Return object shape:
+
+        ```
+        {
+            "count": int,
+            "generated": [{
+                "synth_filename": str,
+                "synth_label": any,
+                "origin_filename": str,
+                "origin_label": any
+            }]
+        }
+        ```
+        """
+        manifest = log_file if log_file != "" else (output_dir + ".json")
+        with open(manifest, "r") as f:
+            raw = json.load(f)
+            return self._raw_summary_to_human(raw)
+
     def synthesize_more(self, organic_img_filenames: list[str], organic_labels: list = None, \
                        realism=0.5, count=None, count_by="per_call", min_random_augmentations=3, max_random_augmentations=6, \
                        min_predicted_diff_error=0, max_predicted_diff_error=1, \
@@ -792,27 +833,50 @@ class ImageAugmenter:
 
         `image_namer`: (Optional) function that returns the relative image name based on: (raw input relative image path, matching label, uid, applied Albumentation transform summary)
 
-        `log_file`: (Optional) The filename of the JSON logs of what has been synthesized, useful for synthetic generation checkpointing.  Defaults to the output directory name but with ".json" appended, set to None to avoid writing this file at all however `count_by`="in_dir" will be disabled.
+        `log_file`: (Optional) The filename of the JSON logs of what has been synthesized, useful for synthetic generation checkpointing.  Defaults to the output directory name but with ".json" appended, set to None to avoid writing this file at all however `count_by`="in_dir" will be disabled then.
 
         `output_dir`: (Optional) The folder to save images and `__preview.html` to.
 
         `preview_html`: (Optional) The name of the HTML file that will summarize synthetic images in `output_dir`, defaults to `__preview.html`.  Set to None to disable summarization.
+
+        Returned summary object shape:
+
+        ```
+        {
+            "count": int,
+            "generated": [{
+                "synth_filename": str,
+                "synth_label": any,
+                "origin_filename": str,
+                "origin_label": any
+            }]
+        }
+        ```
         """
         if self.analytics is None:
             raise Exception("Cannot call before search_randomization_boundries")
         os.makedirs(output_dir, exist_ok=True)
-        uid = len(os.listdir(output_dir))
-        unitless_count = count if count is not None else len(organic_img_filenames)
-        gen_count = unitless_count if count_by == "per_call" else max(0, unitless_count - uid)
+        uid = 0
+        existing_count = 0
+
+        # Merge in previous synth runs if need be
+        manifest = log_file if log_file != "" else (output_dir + ".json")
+        if count_by == "in_dir" and path.exists(manifest):
+            with open(manifest, "r") as f:
+               past_gen_imgs = json.load(f)[0]
+               existing_count = len(past_gen_imgs)
+               uid = existing_count
+
+        gen_count = count if count is not None else len(organic_img_filenames)
         gen_imgs = []
         gen_labels = []
         gen_origins = []
         gen_origin_labels = []
         # Lazy eval labels if using default my_predict model
         derived_label_cache = {}
-
         cur_original_index = 0
-        while (len(gen_imgs) < gen_count):
+
+        while ((len(gen_imgs) + existing_count) < gen_count):
             organic_file = organic_img_filenames[cur_original_index]
             organic_label = organic_labels[cur_original_index] if organic_labels is not None else \
                 (derived_label_cache[organic_file] if organic_file in derived_label_cache else self.predict(organic_file))
@@ -890,8 +954,8 @@ class ImageAugmenter:
             log_file = log_file if log_file != "" else (output_dir + ".json")
             all_logs = self._upsert_and_get_synthetic_log(log_file, this_run)
             if count_by == "in_dir":
-                return all_logs
-        return this_run
+                return self._raw_summary_to_human(all_logs)
+        return self._raw_summary_to_human(this_run)
 
     def evaluate(self, img_filenames, img_labels):
         """

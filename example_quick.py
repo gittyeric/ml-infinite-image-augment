@@ -13,6 +13,7 @@ def main():
     # Find reasonable random intensity bounds with a dumb default vision model and your dataset of 2 switch images
     img_aug.search_randomization_boundries(img_files)
     # Generate 50 "reasonable" random permutations of the on/off switch to "generated" directory
-    img_aug.synthesize_more(img_files, count=50, output_dir="generated")
+    summary = img_aug.synthesize_more(img_files, count=50)
+    print("Generated " + str(summary["count"]) + " images")
 
 main()
